@@ -1,13 +1,3 @@
---[[
-    Roblox AI Studio IDE - Upgraded
-    Features:
-    - Smooth UI Animations
-    - Chat Markdown Formatting & Code Syntax Highlighting
-    - Deep AI Context Engine (Console & Editor Awareness)
-    - Full IDE Layout
-    - Game Context Commands (!read, !ls)
-]]
-
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
@@ -155,6 +145,37 @@ local function makeDraggable(frame, handle)
     end)
 end
 
+local function makeResizable(frame, minSize)
+    minSize = minSize or Vector2.new(200, 200)
+    local resizeHandle = create("TextButton", {
+        Size = UDim2.new(0, 15, 0, 15), Position = UDim2.new(1, -15, 1, -15),
+        BackgroundTransparency = 1, Text = "↘", TextColor3 = Theme.TextMuted,
+        TextSize = 14, ZIndex = (frame.ZIndex or 1) + 5, Parent = frame
+    })
+    local dragging = false
+    local dragStart = nil
+    local startSize = nil
+    
+    resizeHandle.MouseButton1Down:Connect(function()
+        dragging = true
+        dragStart = UserInputService:GetMouseLocation()
+        startSize = frame.AbsoluteSize
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = UserInputService:GetMouseLocation() - dragStart
+            local newWidth = math.max(minSize.X, startSize.X + delta.X)
+            local newHeight = math.max(minSize.Y, startSize.Y + delta.Y)
+            frame.Size = UDim2.new(0, newWidth, 0, newHeight)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+end
+
 -- Syntax Highlight Engine
 local function highlightLuaCode(code)
     local res = ""
@@ -297,6 +318,7 @@ local MainIDEFrame = create("Frame", {
     create("UIStroke", {Color = Theme.Border, Thickness = 1})
 })
 MainIDEFrame.Parent = ScreenGui
+makeResizable(MainIDEFrame, Vector2.new(600, 400))
 
 -- Top Bar
 local TopBar = create("Frame", {
@@ -1164,6 +1186,20 @@ local function processCommands(text)
         end
     end
     
+    for path, prop in text:gmatch("!prop%s+(%S+)%s+(%w+)") do
+        local inst = resolvePath(path)
+        if inst then
+            local s, v = pcall(function() return inst[prop] end)
+            if s and v ~= nil then
+                context = context .. string.format("\n\n[Context - Property %s of %s]:\n%s (%s)", prop, path, formatValue(v) or tostring(v), typeof(v))
+            else
+                context = context .. string.format("\n\n[Context]: Failed to read property %s of %s", prop, path)
+            end
+        else
+            context = context .. string.format("\n\n[Context]: Failed to find %s", path)
+        end
+    end
+    
     return text .. context
 end
 
@@ -1701,6 +1737,141 @@ local ExpScroll = create("ScrollingFrame", {
     create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 2)})
 })
 ExpScroll.Parent = ExplorerWindow
+makeResizable(ExplorerWindow, Vector2.new(200, 300))
+
+local COMMON_PROPERTIES = {
+    "Name", "ClassName", "Parent", "Archivable",
+    "Position", "Size", "CFrame", "Color", "BrickColor", "Material", "Transparency", "Reflectance", "Anchored", "CanCollide", "Massless", "Orientation",
+    "Visible", "ZIndex", "BackgroundColor3", "BackgroundTransparency", "AnchorPoint", "ClipsDescendants",
+    "Text", "TextColor3", "TextSize", "Font", "TextTransparency", "TextScaled", "TextWrapped", "TextXAlignment", "TextYAlignment",
+    "Image", "ImageColor3", "ImageTransparency", "ScaleType",
+    "Value", 
+    "Ambient", "Brightness", "ClockTime", "TimeOfDay", "GlobalShadows",
+    "Health", "MaxHealth", "WalkSpeed", "JumpPower", "AutoRotate",
+    "Enabled", "Volume", "PlaybackSpeed", "Playing", "Looped", "SoundId",
+    "Texture", "MeshId", "VertexColor", "Offset",
+    "FieldOfView", "CameraType", "CameraSubject"
+}
+
+local PropertiesWindow = create("Frame", {
+    Name = "PropertiesWindow", Size = UDim2.new(0, 300, 0, 500), 
+    Position = UDim2.new(0.5, 760, 0.5, -250), BackgroundColor3 = Theme.Background, 
+    Visible = false, ZIndex = 50
+}, {
+    create("UICorner", {CornerRadius = UDim.new(0, 10)}),
+    create("UIStroke", {Color = Theme.Border, Thickness = 1})
+})
+PropertiesWindow.Parent = ScreenGui
+
+local PropTopBar = create("Frame", {
+    Size = UDim2.new(1, 0, 0, 35), BackgroundColor3 = Theme.SurfaceDark, BorderSizePixel = 0
+}, {
+    create("UICorner", {CornerRadius = UDim.new(0, 10)}),
+    create("Frame", {Size = UDim2.new(1, 0, 0, 10), Position = UDim2.new(0, 0, 1, -10), BackgroundColor3 = Theme.SurfaceDark, BorderSizePixel = 0})
+})
+PropTopBar.Parent = PropertiesWindow
+makeDraggable(PropertiesWindow, PropTopBar)
+makeResizable(PropertiesWindow, Vector2.new(200, 300))
+
+local PropTitle = create("TextLabel", {
+    Text = "Properties", Size = UDim2.new(1, -40, 1, 0), Position = UDim2.new(0, 15, 0, 0),
+    BackgroundTransparency = 1, TextColor3 = Theme.Text, Font = Enum.Font.GothamBold, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left, Parent = PropTopBar
+})
+
+local PropCloseBtn = create("TextButton", {
+    Size = UDim2.new(0, 35, 0, 35), Position = UDim2.new(1, -35, 0, 0), BackgroundTransparency = 1,
+    Text = "X", TextColor3 = Theme.TextMuted, Font = Enum.Font.GothamBold, TextSize = 14, Parent = PropTopBar
+})
+PropCloseBtn.MouseButton1Click:Connect(function() PropertiesWindow.Visible = false end)
+
+local PropScroll = create("ScrollingFrame", {
+    Size = UDim2.new(1, 0, 1, -45), Position = UDim2.new(0, 0, 0, 40), BackgroundTransparency = 1,
+    ScrollBarThickness = 4, AutomaticCanvasSize = Enum.AutomaticSize.Y
+}, {
+    create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 2)})
+})
+PropScroll.Parent = PropertiesWindow
+
+local function parseInputValue(valStr)
+    valStr = valStr:match("^%s*(.-)%s*$")
+    if valStr:lower() == "true" then return true end
+    if valStr:lower() == "false" then return false end
+    if tonumber(valStr) then return tonumber(valStr) end
+    if valStr:match("^%d+,%s*%d+,%s*%d+$") then
+        local r, g, b = valStr:match("^(%d+),%s*(%d+),%s*(%d+)$")
+        return Color3.fromRGB(tonumber(r), tonumber(g), tonumber(b))
+    end
+    if valStr:match("^[%d%.%-]+,%s*[%d%.%-]+,%s*[%d%.%-]+$") then
+        local x, y, z = valStr:match("^([%d%.%-]+),%s*([%d%.%-]+),%s*([%d%.%-]+)$")
+        if x and y and z then return Vector3.new(tonumber(x), tonumber(y), tonumber(z)) end
+    end
+    return valStr
+end
+
+local function formatValue(val)
+    if type(val) == "boolean" then return tostring(val) end
+    if type(val) == "number" then return tostring(math.round(val * 1000) / 1000) end
+    if typeof(val) == "Color3" then return string.format("%d, %d, %d", math.round(val.R*255), math.round(val.G*255), math.round(val.B*255)) end
+    if typeof(val) == "Vector3" then return string.format("%.3f, %.3f, %.3f", val.X, val.Y, val.Z) end
+    if typeof(val) == "CFrame" then return string.format("%.3f, %.3f, %.3f", val.Position.X, val.Position.Y, val.Position.Z) end
+    if typeof(val) == "Instance" then return val.Name end
+    return tostring(val)
+end
+
+local function openProperties(instance)
+    for _, child in ipairs(PropScroll:GetChildren()) do
+        if child:IsA("Frame") then child:Destroy() end
+    end
+    PropScroll.CanvasPosition = Vector2.new(0, 0)
+    PropTitle.Text = instance.Name .. " Properties"
+    PropertiesWindow.Visible = true
+    
+    local layoutOrder = 0
+    for _, prop in ipairs(COMMON_PROPERTIES) do
+        local success, val = pcall(function() return instance[prop] end)
+        if success and val ~= nil then
+            layoutOrder = layoutOrder + 1
+            local row = create("Frame", {
+                Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1, LayoutOrder = layoutOrder
+            })
+            create("TextLabel", {
+                Size = UDim2.new(0.45, -15), Position = UDim2.new(0, 15, 0, 0),
+                BackgroundTransparency = 1, Text = prop, TextColor3 = Theme.TextMuted,
+                Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, Parent = row
+            })
+            local valBox = create("TextBox", {
+                Size = UDim2.new(0.45, -10), Position = UDim2.new(0.45, 0, 0, 0),
+                BackgroundColor3 = Theme.Surface, Text = formatValue(val), TextColor3 = Theme.Text,
+                Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, Parent = row,
+                ClearTextOnFocus = false
+            }, {create("UICorner", {CornerRadius = UDim.new(0, 4)}), create("UIPadding", {PaddingLeft = UDim.new(0, 5)})})
+            
+            local pinPropBtn = create("TextButton", {
+                Size = UDim2.new(0, 20, 0, 20), Position = UDim2.new(1, -25, 0.5, -10),
+                BackgroundColor3 = Theme.Surface, Text = "📌", TextColor3 = Theme.Text,
+                Font = Enum.Font.Gotham, TextSize = 10, Parent = row
+            }, {create("UICorner", {CornerRadius = UDim.new(0, 4)})})
+            applyHover(pinPropBtn, Theme.Surface, Theme.SurfaceDark)
+            pinPropBtn.MouseButton1Click:Connect(function()
+                ChatInput.Text = ChatInput.Text .. (ChatInput.Text == "" and "" or " ") .. "!prop " .. instance:GetFullName() .. " " .. prop
+            end)
+            
+            valBox.FocusLost:Connect(function()
+                local parsed = parseInputValue(valBox.Text)
+                local s, e = pcall(function() instance[prop] = parsed end)
+                if not s then
+                    valBox.Text = formatValue(instance[prop])
+                    local oldColor = valBox.BackgroundColor3
+                    valBox.BackgroundColor3 = Color3.fromRGB(220, 38, 38)
+                    task.delay(0.3, function() valBox.BackgroundColor3 = oldColor end)
+                else
+                    valBox.Text = formatValue(instance[prop])
+                end
+            end)
+            row.Parent = PropScroll
+        end
+    end
+end
 
 local function getInstanceIcon(inst)
     if inst:IsA("Folder") then return "📁" end
@@ -1708,12 +1879,16 @@ local function getInstanceIcon(inst)
     if inst:IsA("LocalScript") or inst:IsA("Script") then return "📜" end
     if inst:IsA("ModuleScript") then return "🧩" end
     if inst:IsA("Part") or inst:IsA("MeshPart") or inst:IsA("BasePart") then return "🧱" end
-    if inst:IsA("ScreenGui") or inst:IsA("Frame") or inst:IsA("TextLabel") or inst:IsA("ImageLabel") then return "🖥️" end
+    if inst:IsA("ScreenGui") or inst:IsA("Frame") or inst:IsA("TextLabel") or inst:IsA("ImageLabel") or inst:IsA("StarterGui") or inst:IsA("CoreGui") then return "🖥️" end
     if inst:IsA("RemoteEvent") or inst:IsA("RemoteFunction") then return "⚡" end
     if inst:IsA("BindableEvent") or inst:IsA("BindableFunction") then return "🔗" end
     if inst:IsA("IntValue") or inst:IsA("NumberValue") or inst:IsA("StringValue") or inst:IsA("BoolValue") or inst:IsA("ObjectValue") or inst:IsA("Color3Value") or inst:IsA("Vector3Value") then return "🔢" end
     if inst:IsA("Humanoid") then return "🧍" end
     if inst:IsA("Tool") then return "⚔️" end
+    if inst:IsA("Lighting") or inst:IsA("PointLight") or inst:IsA("SpotLight") or inst:IsA("SurfaceLight") then return "💡" end
+    if inst:IsA("Sound") or inst:IsA("SoundService") then return "🔊" end
+    if inst:IsA("Workspace") then return "🌍" end
+    if inst:IsA("Players") then return "👥" end
     return "📄"
 end
 
@@ -1745,12 +1920,15 @@ local function renderNode(instance, depth, parentFrame)
         Font = Enum.Font.Gotham, TextSize = 12, Parent = row
     })
     
-    local nameLabel = create("TextLabel", {
+    local nameLabel = create("TextButton", {
         Size = UDim2.new(1, -(indent + 110), 0, 24), Position = UDim2.new(0, indent + 45, 0, 0),
         BackgroundTransparency = 1, Text = instance.Name, TextColor3 = Theme.Text,
         Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, Parent = row,
         TextTruncate = Enum.TextTruncate.AtEnd
     })
+    nameLabel.MouseButton1Click:Connect(function()
+        openProperties(instance)
+    end)
     
     local refBtn = create("TextButton", {
         Size = UDim2.new(0, 25, 0, 20), Position = UDim2.new(1, -60, 0.5, -10),
