@@ -1,3 +1,13 @@
+--[[
+    Roblox AI Studio IDE - Upgraded
+    Features:
+    - Smooth UI Animations
+    - Chat Markdown Formatting & Code Syntax Highlighting
+    - Deep AI Context Engine (Console & Editor Awareness)
+    - Full IDE Layout
+    - Game Context Commands (!read, !ls)
+]]
+
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
@@ -2001,11 +2011,12 @@ local INPUT_FRAME_HEIGHT = 60
 local InputFrame = create("Frame", {
     Size = UDim2.new(1, -20, 0, INPUT_FRAME_HEIGHT), 
     Position = UDim2.new(0, 10, 1, -(INPUT_FRAME_HEIGHT + 30)), 
-    BackgroundColor3 = Theme.Surface, 
+    BackgroundColor3 = Theme.SurfaceDark, 
     BorderSizePixel = 0,
     ClipsDescendants = true
 }, {
-    create("UICorner", {CornerRadius = UDim.new(0, 8)})
+    create("UICorner", {CornerRadius = UDim.new(0, 8)}),
+    create("UIStroke", {Color = Theme.Border, Thickness = 1})
 })
 InputFrame.Parent = ChatArea
 
@@ -2042,6 +2053,15 @@ local ChatInput = create("TextBox", {
     ClearTextOnFocus = false
 })
 ChatInput.Parent = InputScroll
+
+-- As the prompt wraps onto new lines, keep the newest line in view instead of
+-- letting it render below the visible area of the box.
+local function scrollInputToBottom()
+    task.defer(function()
+        InputScroll.CanvasPosition = Vector2.new(0, math.max(0, InputScroll.AbsoluteCanvasSize.Y - InputScroll.AbsoluteSize.Y))
+    end)
+end
+ChatInput:GetPropertyChangedSignal("Text"):Connect(scrollInputToBottom)
 
 local SettingsBar = create("Frame", {
     Size = UDim2.new(1, -20, 0, 20),
@@ -2846,6 +2866,23 @@ loadSession = function(id)
     end)
 end
 
+local function startFreshSession(titleText)
+    currentSessionId = tostring(os.time())
+    SessionTitleBox.Text = titleText or ("Session - " .. os.date("%b %d %I:%M%p"))
+    sessionFiles = {{name = "Main.lua", language = "lua", content = "-- Write your Luau code here\nprint('Hello from IDE!')"}}
+    activeFileIndex = 1
+    CodeInput.Text = sessionFiles[1].content
+    refreshFileTabsUI()
+    consoleHistory = {}
+    for _, child in ipairs(ConsoleScroll:GetChildren()) do
+        if child:IsA("TextLabel") then child:Destroy() end
+    end
+    conversation = {{role = "system", content = config.SystemPrompt}}
+    for _, child in ipairs(ChatScroll:GetChildren()) do
+        if child:IsA("Frame") and not child:IsA("UIListLayout") and not child:IsA("UIPadding") then child:Destroy() end
+    end
+end
+
 updateSessionList = function()
     for _, child in ipairs(SessionsScroll:GetChildren()) do
         if child:IsA("Frame") then child:Destroy() end
@@ -2895,9 +2932,15 @@ updateSessionList = function()
             applyHover(delBtn, Color3.fromRGB(220, 38, 38), Color3.fromRGB(185, 28, 28))
             delBtn.MouseButton1Click:Connect(function()
                 pcall(delfile, file)
+                local wasActive = currentSessionId == data.id
                 updateSessionList()
-                if currentSessionId == data.id then
-                    SessionTitleBox.Text = "Session (Deleted)"
+                if wasActive then
+                    -- The session backing the currently open files/chat/console no longer
+                    -- exists on disk, so start a clean session instead of leaving stale
+                    -- files and messages open.
+                    startFreshSession("Session (Deleted)")
+                    addMessageToUI("assistant", "That session was deleted, so a fresh session was started.")
+                    switchTab("Chat")
                 end
             end)
             
@@ -2908,20 +2951,7 @@ end
 
 NewSessionBtn.MouseButton1Click:Connect(function()
     if saveSession then saveSession() end
-    currentSessionId = tostring(os.time())
-    SessionTitleBox.Text = "Session - " .. os.date("%b %d %I:%M%p")
-    sessionFiles = {{name = "Main.lua", language = "lua", content = "-- Write your Luau code here\nprint('Hello from IDE!')"}}
-    activeFileIndex = 1
-    CodeInput.Text = sessionFiles[1].content
-    refreshFileTabsUI()
-    consoleHistory = {}
-    for _, child in ipairs(ConsoleScroll:GetChildren()) do
-        if child:IsA("TextLabel") then child:Destroy() end
-    end
-    conversation = {{role = "system", content = config.SystemPrompt}}
-    for _, child in ipairs(ChatScroll:GetChildren()) do
-        if child:IsA("Frame") and not child:IsA("UIListLayout") and not child:IsA("UIPadding") then child:Destroy() end
-    end
+    startFreshSession()
     addMessageToUI("assistant", "New session started! How can I help you today?")
     switchTab("Chat")
 end)
