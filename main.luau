@@ -1,13 +1,3 @@
---[[
-    Roblox AI Studio IDE - Upgraded
-    Features:
-    - Smooth UI Animations
-    - Chat Markdown Formatting & Code Syntax Highlighting
-    - Deep AI Context Engine (Console & Editor Awareness)
-    - Full IDE Layout
-    - Game Context Commands (!read, !ls)
-]]
-
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
