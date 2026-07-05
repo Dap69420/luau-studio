@@ -2012,12 +2012,6 @@ local SessionsScroll = create("ScrollingFrame", {
 })
 SessionsScroll.Parent = SessionsArea
 
--- Unified prompt "card" — textarea, divider, and a toolbar (model selector,
--- settings, send/stop) all inside one rounded panel, similar to the input
--- box of a typical AI coding assistant extension, instead of separate
--- floating pieces that visually crowd the message list above them.
--- (Packed into one table rather than several locals — this file is a single
--- top-level chunk and Lua caps local variables per chunk at 200.)
 local PromptLayout = {textarea = 54, toolbar = 30, padding = 8, margin = 14, topGap = 12}
 PromptLayout.cardHeight = PromptLayout.padding + PromptLayout.textarea + PromptLayout.toolbar
 
@@ -2076,7 +2070,7 @@ local ChatInput = create("TextBox", {
     AutomaticSize = Enum.AutomaticSize.Y,
     BackgroundTransparency = 1, 
     Text = "", 
-    PlaceholderText = "Ask anything, @ to mention...", 
+    PlaceholderText = "Ask anything...", 
     TextColor3 = Theme.Text, 
     PlaceholderColor3 = Theme.TextMuted, 
     Font = Enum.Font.Gotham, 
@@ -2229,7 +2223,7 @@ local SendBtn = create("TextButton", {
     Size = UDim2.new(0, 24, 0, 24), 
     Position = UDim2.new(1, -24, 0.5, -12), 
     BackgroundColor3 = Theme.Accent, 
-    Text = "➤", 
+    Text = ">", 
     TextColor3 = Theme.Text, 
     Font = Enum.Font.GothamBold, 
     TextSize = 13
