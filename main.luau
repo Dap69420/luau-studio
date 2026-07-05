@@ -179,12 +179,63 @@ local function applyHover(btn, normalColor, hoverColor)
     end)
 end
 
+-- Frames registered here get automatically re-clamped inside the screen
+-- whenever the viewport size changes (e.g. mobile rotation, window resize).
+local ScreenGui -- forward declaration; assigned below, referenced by clamp helpers above its assignment
+local clampableFrames = {}
+
+local function clampFrameToScreen(frame, margin)
+    margin = margin or 0
+    local screen = ScreenGui.AbsoluteSize
+    if screen.X <= 0 or screen.Y <= 0 then return end
+
+    local availW = math.max(50, screen.X - margin * 2)
+    local availH = math.max(50, screen.Y - margin * 2)
+
+    -- Shrink the frame first if it no longer fits the screen at all (mobile-safe).
+    local size = frame.Size
+    if size.X.Scale == 0 and frame.AbsoluteSize.X > availW then
+        size = UDim2.new(size.X.Scale, availW, size.Y.Scale, size.Y.Offset)
+        frame.Size = size
+    end
+    if size.Y.Scale == 0 and frame.AbsoluteSize.Y > availH then
+        size = UDim2.new(size.X.Scale, size.X.Offset, size.Y.Scale, availH)
+        frame.Size = size
+    end
+
+    -- Then make sure its position keeps it fully on-screen.
+    local absPos = frame.AbsolutePosition
+    local absSize = frame.AbsoluteSize
+    local maxX = math.max(margin, screen.X - margin - absSize.X)
+    local maxY = math.max(margin, screen.Y - margin - absSize.Y)
+    local targetX = math.clamp(absPos.X, margin, maxX)
+    local targetY = math.clamp(absPos.Y, margin, maxY)
+    local dx, dy = targetX - absPos.X, targetY - absPos.Y
+    if math.abs(dx) > 0.5 or math.abs(dy) > 0.5 then
+        local pos = frame.Position
+        frame.Position = UDim2.new(pos.X.Scale, pos.X.Offset + dx, pos.Y.Scale, pos.Y.Offset + dy)
+    end
+end
+
+local function registerClampable(frame)
+    table.insert(clampableFrames, frame)
+end
+
+local function isPointerInputType(inputType)
+    return inputType == Enum.UserInputType.MouseMovement or inputType == Enum.UserInputType.Touch
+end
+
+local function isPointerActionType(inputType)
+    return inputType == Enum.UserInputType.MouseButton1 or inputType == Enum.UserInputType.Touch
+end
+
 local function makeDraggable(frame, handle)
     handle = handle or frame
+    registerClampable(frame)
     local dragging, dragInput, dragStart, startPos
     
     handle.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if isPointerActionType(input.UserInputType) then
             dragging = true
             dragStart = input.Position
             startPos = frame.Position
@@ -197,7 +248,7 @@ local function makeDraggable(frame, handle)
     end)
     
     handle.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement then 
+        if isPointerInputType(input.UserInputType) then 
             dragInput = input 
         end
     end)
@@ -211,14 +262,16 @@ local function makeDraggable(frame, handle)
                 startPos.Y.Scale, 
                 startPos.Y.Offset + delta.Y
             )
+            clampFrameToScreen(frame)
         end
     end)
 end
 
 local function makeResizable(frame, minSize)
     minSize = minSize or Vector2.new(200, 200)
+    registerClampable(frame)
     local resizeHandle = create("TextButton", {
-        Size = UDim2.new(0, 15, 0, 15), Position = UDim2.new(1, -15, 1, -15),
+        Size = UDim2.new(0, 20, 0, 20), Position = UDim2.new(1, -20, 1, -20),
         BackgroundTransparency = 1, Text = "↘", TextColor3 = Theme.TextMuted,
         TextSize = 14, ZIndex = (frame.ZIndex or 1) + 5, Parent = frame
     })
@@ -226,21 +279,32 @@ local function makeResizable(frame, minSize)
     local dragStart = nil
     local startSize = nil
     
-    resizeHandle.MouseButton1Down:Connect(function()
-        dragging = true
-        dragStart = UserInputService:GetMouseLocation()
-        startSize = frame.AbsoluteSize
+    resizeHandle.InputBegan:Connect(function(input)
+        if isPointerActionType(input.UserInputType) then
+            dragging = true
+            dragStart = input.Position
+            startSize = frame.AbsoluteSize
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
     end)
     UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            local delta = UserInputService:GetMouseLocation() - dragStart
-            local newWidth = math.max(minSize.X, startSize.X + delta.X)
-            local newHeight = math.max(minSize.Y, startSize.Y + delta.Y)
+        if dragging and isPointerInputType(input.UserInputType) then
+            local delta = input.Position - dragStart
+            local screen = ScreenGui.AbsoluteSize
+            -- Cap the resize to whatever screen space is actually available (mobile-safe).
+            local maxWidth = math.max(minSize.X, screen.X - frame.AbsolutePosition.X - 4)
+            local maxHeight = math.max(minSize.Y, screen.Y - frame.AbsolutePosition.Y - 4)
+            local newWidth = math.clamp(startSize.X + delta.X, math.min(minSize.X, screen.X - 8), maxWidth)
+            local newHeight = math.clamp(startSize.Y + delta.Y, math.min(minSize.Y, screen.Y - 8), maxHeight)
             frame.Size = UDim2.new(0, newWidth, 0, newHeight)
         end
     end)
     UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if isPointerActionType(input.UserInputType) then
             dragging = false
         end
     end)
@@ -343,7 +407,7 @@ local function parseMarkdown(text)
 end
 
 -- Base GUI
-local ScreenGui = create("ScreenGui", {
+ScreenGui = create("ScreenGui", {
     Name = "AIAssistantIDE", 
     ResetOnSpawn = false,
     ZIndexBehavior = Enum.ZIndexBehavior.Sibling
@@ -389,6 +453,33 @@ local MainIDEFrame = create("Frame", {
 })
 MainIDEFrame.Parent = ScreenGui
 makeResizable(MainIDEFrame, Vector2.new(600, 400))
+
+-- Keep the whole window on-screen (and shrunk to fit) on small/mobile screens,
+-- both on first load and whenever the viewport size changes (rotation, resize, etc).
+local function fitMainIDEFrameToScreen()
+    local screen = ScreenGui.AbsoluteSize
+    if screen.X <= 0 or screen.Y <= 0 then return end
+
+    local margin = 10
+    local targetW = math.min(850, math.max(280, screen.X - margin * 2))
+    local targetH = math.min(550, math.max(220, screen.Y - margin * 2))
+
+    if MainIDEFrame.Size.X.Offset > screen.X - margin * 2 or MainIDEFrame.Size.Y.Offset > screen.Y - margin * 2 then
+        MainIDEFrame.Size = UDim2.new(0, targetW, 0, targetH)
+        MainIDEFrame.Position = UDim2.new(0.5, -targetW / 2, 0.5, -targetH / 2)
+    end
+
+    for _, f in ipairs(clampableFrames) do
+        pcall(clampFrameToScreen, f)
+    end
+end
+
+fitMainIDEFrameToScreen()
+local camera = workspace.CurrentCamera
+if camera then
+    camera:GetPropertyChangedSignal("ViewportSize"):Connect(fitMainIDEFrameToScreen)
+end
+ScreenGui:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitMainIDEFrameToScreen)
 
 
 -- Top Bar
@@ -965,8 +1056,11 @@ local MiddleContent = create("Frame", {
 })
 MiddleContent.Parent = MainIDEFrame
 
+local consoleHeight = 200
+local MIN_CONSOLE_HEIGHT = 100
+
 local ConsoleFrame = create("Frame", {
-    Size = UDim2.new(1, 0, 0, 200), 
+    Size = UDim2.new(1, 0, 0, consoleHeight), 
     Position = UDim2.new(0, 0, 1, 0), 
     BackgroundColor3 = Theme.SurfaceDark, 
     BorderSizePixel = 0, 
@@ -979,14 +1073,38 @@ local ConsoleFrame = create("Frame", {
 })
 ConsoleFrame.Parent = MainIDEFrame
 
+-- Drag strip straddling the console's top border, so users can resize its height.
+local ConsoleResizeHandle = create("Frame", {
+    Name = "ConsoleResizeHandle",
+    Size = UDim2.new(1, 0, 0, 8),
+    Position = UDim2.new(0, 0, 0, -4),
+    BackgroundTransparency = 1,
+    Active = true,
+    ZIndex = 5
+})
+ConsoleResizeHandle.Parent = ConsoleFrame
+
 local consoleVisible = false
+
+local function maxConsoleHeight()
+    return math.max(MIN_CONSOLE_HEIGHT, MainIDEFrame.AbsoluteSize.Y - 40 - 150)
+end
+
+local function applyConsoleHeight()
+    ConsoleFrame.Size = UDim2.new(1, 0, 0, consoleHeight)
+    if consoleVisible then
+        ConsoleFrame.Position = UDim2.new(0, 0, 1, -consoleHeight)
+        MiddleContent.Size = UDim2.new(1, 0, 1, -(40 + consoleHeight))
+    end
+end
+
 ConsoleToggleBtn.MouseButton1Click:Connect(function()
     consoleVisible = not consoleVisible
     if consoleVisible then
         ConsoleToggleBtn.TextColor3 = Theme.Text
         ConsoleFrame.Visible = true
-        tween(MiddleContent, {Size = UDim2.new(1, 0, 1, -240)}, 0.3)
-        tween(ConsoleFrame, {Position = UDim2.new(0, 0, 1, -200)}, 0.3)
+        tween(MiddleContent, {Size = UDim2.new(1, 0, 1, -(40 + consoleHeight))}, 0.3)
+        tween(ConsoleFrame, {Position = UDim2.new(0, 0, 1, -consoleHeight)}, 0.3)
     else
         ConsoleToggleBtn.TextColor3 = Theme.TextMuted
         tween(MiddleContent, {Size = UDim2.new(1, 0, 1, -40)}, 0.3)
@@ -999,16 +1117,58 @@ ConsoleToggleBtn.MouseButton1Click:Connect(function()
     end
 end)
 
+do
+    local dragging = false
+    local lastY = nil
+    ConsoleResizeHandle.InputBegan:Connect(function(input)
+        if isPointerActionType(input.UserInputType) and consoleVisible then
+            dragging = true
+            lastY = input.Position.Y
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and isPointerInputType(input.UserInputType) then
+            local y = input.Position.Y
+            local dy = y - lastY
+            lastY = y
+            consoleHeight = math.clamp(consoleHeight - dy, MIN_CONSOLE_HEIGHT, maxConsoleHeight())
+            applyConsoleHeight()
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if isPointerActionType(input.UserInputType) then dragging = false end
+    end)
+end
+
+local splitRatio = 0.6 -- fraction of MiddleContent's width given to the editor; rest goes to Chat/Sessions
+local MIN_SPLIT_RATIO, MAX_SPLIT_RATIO = 0.3, 0.75
+
 local EditorContainer = create("Frame", {
-    Size = UDim2.new(0.6, 0, 1, 0), 
+    Size = UDim2.new(splitRatio, -3, 1, 0), 
     BackgroundColor3 = Theme.Background, 
     BorderSizePixel = 0
 })
 EditorContainer.Parent = MiddleContent
 
+-- Drag divider between the editor and the Chat/Sessions sidebar.
+local SplitDivider = create("Frame", {
+    Name = "EditorSidebarDivider",
+    Size = UDim2.new(0, 6, 1, 0),
+    Position = UDim2.new(splitRatio, -3, 0, 0),
+    BackgroundColor3 = Theme.Border,
+    BorderSizePixel = 0,
+    Active = true,
+    ZIndex = 5
+})
+SplitDivider.Parent = MiddleContent
+applyHover(SplitDivider, Theme.Border, Theme.Accent)
+
 local SidebarContainer = create("Frame", {
-    Size = UDim2.new(0.4, 0, 1, 0), 
-    Position = UDim2.new(0.6, 0, 0, 0), 
+    Size = UDim2.new(1 - splitRatio, -3, 1, 0), 
+    Position = UDim2.new(splitRatio, 3, 0, 0), 
     BackgroundColor3 = Theme.SurfaceDark, 
     BorderSizePixel = 0
 }, {
@@ -1018,6 +1178,40 @@ local SidebarContainer = create("Frame", {
     })
 })
 SidebarContainer.Parent = MiddleContent
+
+local function applySplitRatio()
+    EditorContainer.Size = UDim2.new(splitRatio, -3, 1, 0)
+    SplitDivider.Position = UDim2.new(splitRatio, -3, 0, 0)
+    SidebarContainer.Size = UDim2.new(1 - splitRatio, -3, 1, 0)
+    SidebarContainer.Position = UDim2.new(splitRatio, 3, 0, 0)
+end
+
+do
+    local dragging = false
+    local lastX = nil
+    SplitDivider.InputBegan:Connect(function(input)
+        if isPointerActionType(input.UserInputType) then
+            dragging = true
+            lastX = input.Position.X
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and isPointerInputType(input.UserInputType) then
+            local x = input.Position.X
+            local dx = x - lastX
+            lastX = x
+            local widthPx = math.max(1, MiddleContent.AbsoluteSize.X)
+            splitRatio = math.clamp(splitRatio + dx / widthPx, MIN_SPLIT_RATIO, MAX_SPLIT_RATIO)
+            applySplitRatio()
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if isPointerActionType(input.UserInputType) then dragging = false end
+    end)
+end
 
 -- === CODE EDITOR MODULE ===
 local EditorTopBar = create("Frame", {
@@ -1073,40 +1267,66 @@ local PluginButtonsRow = create("Frame", {
 })
 PluginButtonsRow.Parent = EditorTopBar
 
--- === File Tabs Bar (multi-file sessions, VS Code style) ===
-local FileTabsBar = create("Frame", {
-    Size = UDim2.new(1, 0, 0, 30),
+-- === File Explorer Panel (VS Code style, left sidebar of the editor) ===
+local FILE_EXPLORER_WIDTH = 170
+local MIN_EXPLORER_WIDTH, MAX_EXPLORER_WIDTH = 110, 400
+
+local FileExplorerPanel = create("Frame", {
+    Size = UDim2.new(0, FILE_EXPLORER_WIDTH, 1, -35),
     Position = UDim2.new(0, 0, 0, 35),
     BackgroundColor3 = Theme.SurfaceDark,
     BorderSizePixel = 0
 }, {
-    create("Frame", {Size = UDim2.new(1, 0, 0, 1), Position = UDim2.new(0, 0, 1, -1), BackgroundColor3 = Theme.Border})
+    create("Frame", {
+        Size = UDim2.new(0, 1, 1, 0),
+        Position = UDim2.new(1, -1, 0, 0),
+        BackgroundColor3 = Theme.Border
+    })
 })
-FileTabsBar.Parent = EditorContainer
+FileExplorerPanel.Parent = EditorContainer
 
-local FileTabsScroll = create("ScrollingFrame", {
-    Size = UDim2.new(1, -32, 1, 0),
+-- Drag strip straddling the explorer's right border, so users can resize its width independently.
+local ExplorerResizeHandle = create("Frame", {
+    Name = "ExplorerResizeHandle",
+    Size = UDim2.new(0, 8, 1, 0),
+    Position = UDim2.new(1, -4, 0, 0),
     BackgroundTransparency = 1,
-    ScrollingDirection = Enum.ScrollingDirection.X,
-    CanvasSize = UDim2.new(0, 0, 0, 0),
-    AutomaticCanvasSize = Enum.AutomaticSize.X,
-    ScrollBarThickness = 3,
-    ScrollBarImageColor3 = Theme.Border
-}, {
-    create("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 2)})
+    Active = true,
+    ZIndex = 5
 })
-FileTabsScroll.Parent = FileTabsBar
+ExplorerResizeHandle.Parent = FileExplorerPanel
+
+local FileExplorerHeader = create("Frame", {
+    Size = UDim2.new(1, 0, 0, 28),
+    BackgroundTransparency = 1
+}, {
+    create("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 6)})
+})
+FileExplorerHeader.Parent = FileExplorerPanel
+
+create("TextLabel", {
+    Name = "FileExplorerTitle",
+    Size = UDim2.new(1, -22, 1, 0),
+    BackgroundTransparency = 1,
+    Text = "FILES",
+    TextColor3 = Theme.TextMuted,
+    Font = Enum.Font.GothamBold,
+    TextSize = 11,
+    TextXAlignment = Enum.TextXAlignment.Left
+}).Parent = FileExplorerHeader
 
 local NewFileBtn = create("TextButton", {
-    Size = UDim2.new(0, 30, 1, 0),
-    Position = UDim2.new(1, -30, 0, 0),
+    Name = "NewFileButton",
+    Size = UDim2.new(0, 20, 0, 20),
+    AnchorPoint = Vector2.new(1, 0.5),
+    Position = UDim2.new(1, 0, 0.5, 0),
     BackgroundTransparency = 1,
     Text = "+",
     TextColor3 = Theme.TextMuted,
     Font = Enum.Font.GothamBold,
     TextSize = 16
 })
-NewFileBtn.Parent = FileTabsBar
+NewFileBtn.Parent = FileExplorerHeader
 applyHover(NewFileBtn, Theme.SurfaceDark, Theme.Surface)
 NewFileBtn.MouseButton1Click:Connect(function()
     NewFileNameBox.Text = ""
@@ -1115,10 +1335,25 @@ NewFileBtn.MouseButton1Click:Connect(function()
     NewFileNameBox:CaptureFocus()
 end)
 
+local FileListScroll = create("ScrollingFrame", {
+    Name = "FileListScroll",
+    Size = UDim2.new(1, 0, 1, -28),
+    Position = UDim2.new(0, 0, 0, 28),
+    BackgroundTransparency = 1,
+    ScrollingDirection = Enum.ScrollingDirection.Y,
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    ScrollBarThickness = 3,
+    ScrollBarImageColor3 = Theme.Border
+}, {
+    create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder})
+})
+FileListScroll.Parent = FileExplorerPanel
+
 -- Gutter (line numbers)
 local GutterFrame = create("Frame", {
-    Size = UDim2.new(0, 40, 1, -65),
-    Position = UDim2.new(0, 0, 0, 65),
+    Size = UDim2.new(0, 40, 1, -35),
+    Position = UDim2.new(0, FILE_EXPLORER_WIDTH, 0, 35),
     BackgroundColor3 = Theme.SurfaceDark,
     BorderSizePixel = 0,
     ZIndex = 2,
@@ -1140,12 +1375,12 @@ local GutterScroll = create("ScrollingFrame", {
 GutterScroll.Parent = GutterFrame
 
 local EditorScroll = create("ScrollingFrame", {
-    Size = UDim2.new(1, -40, 1, -65), 
-    Position = UDim2.new(0, 40, 0, 65), 
-    BackgroundTransparency = 1, 
-    CanvasSize = UDim2.new(0, 0, 0, 0), 
-    AutomaticCanvasSize = Enum.AutomaticSize.Y, 
-    ScrollBarThickness = 6, 
+    Size = UDim2.new(1, -(FILE_EXPLORER_WIDTH + 40), 1, -35),
+    Position = UDim2.new(0, FILE_EXPLORER_WIDTH + 40, 0, 35),
+    BackgroundTransparency = 1,
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    ScrollBarThickness = 6,
     ScrollBarImageColor3 = Theme.Border
 })
 EditorScroll.Parent = EditorContainer
@@ -1154,6 +1389,39 @@ EditorScroll.Parent = EditorContainer
 EditorScroll:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
     GutterScroll.CanvasPosition = Vector2.new(0, EditorScroll.CanvasPosition.Y)
 end)
+
+local function applyExplorerWidth()
+    FileExplorerPanel.Size = UDim2.new(0, FILE_EXPLORER_WIDTH, 1, -35)
+    GutterFrame.Position = UDim2.new(0, FILE_EXPLORER_WIDTH, 0, 35)
+    EditorScroll.Size = UDim2.new(1, -(FILE_EXPLORER_WIDTH + 40), 1, -35)
+    EditorScroll.Position = UDim2.new(0, FILE_EXPLORER_WIDTH + 40, 0, 35)
+end
+
+do
+    local dragging = false
+    local lastX = nil
+    ExplorerResizeHandle.InputBegan:Connect(function(input)
+        if isPointerActionType(input.UserInputType) then
+            dragging = true
+            lastX = input.Position.X
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and isPointerInputType(input.UserInputType) then
+            local x = input.Position.X
+            local dx = x - lastX
+            lastX = x
+            FILE_EXPLORER_WIDTH = math.clamp(FILE_EXPLORER_WIDTH + dx, MIN_EXPLORER_WIDTH, MAX_EXPLORER_WIDTH)
+            applyExplorerWidth()
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if isPointerActionType(input.UserInputType) then dragging = false end
+    end)
+end
 
 sessionFiles = {{name = "Main.lua", language = "lua", content = "-- Write your Luau code here\nprint('Hello from IDE!')"}}
 activeFileIndex = 1
@@ -1220,78 +1488,63 @@ ClearCodeBtn.MouseButton1Click:Connect(function()
     CodeInput.Text = "" 
 end)
 
--- === File Tab implementations ===
+-- === File Explorer list implementation (VS Code style left sidebar) ===
 refreshFileTabsUI = function()
-    for _, c in ipairs(FileTabsScroll:GetChildren()) do
+    for _, c in ipairs(FileListScroll:GetChildren()) do
         if not c:IsA("UIListLayout") then c:Destroy() end
     end
 
     for i, f in ipairs(sessionFiles) do
         local isActive = (i == activeFileIndex)
-        local tabBtn = create("Frame", {
-            Size = UDim2.new(0, 0, 1, 0),
-            AutomaticSize = Enum.AutomaticSize.X,
+        local row = create("Frame", {
+            Name = "FileRow",
+            Size = UDim2.new(1, 0, 0, 28),
             BackgroundColor3 = isActive and Theme.Background or Theme.SurfaceDark,
             LayoutOrder = i
-        }, {
-            create("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 6)}),
-            create("UIListLayout", {
-                FillDirection = Enum.FillDirection.Horizontal,
-                SortOrder = Enum.SortOrder.LayoutOrder,
-                VerticalAlignment = Enum.VerticalAlignment.Center,
-                Padding = UDim.new(0, 6)
-            })
         })
 
+        if isActive then
+            create("Frame", {
+                Name = "ActiveIndicator",
+                Size = UDim2.new(0, 3, 1, 0),
+                BackgroundColor3 = Theme.Accent
+            }).Parent = row
+        end
+
         local openBtn = create("TextButton", {
-            Name = "TabLabel",
-            LayoutOrder = 1,
-            Size = UDim2.new(0, 0, 1, 0),
-            AutomaticSize = Enum.AutomaticSize.X,
+            Name = "FileRowLabel",
+            Size = UDim2.new(1, -30, 1, 0),
+            Position = UDim2.new(0, 10, 0, 0),
             BackgroundTransparency = 1,
             Text = fileIcon(f.language) .. "  " .. f.name,
             TextColor3 = isActive and Theme.Text or Theme.TextMuted,
             Font = isActive and Enum.Font.GothamMedium or Enum.Font.Gotham,
-            TextSize = 12
+            TextSize = 12,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd
         })
-        openBtn.Parent = tabBtn
+        openBtn.Parent = row
         openBtn.MouseButton1Click:Connect(function() openFile(i) end)
 
         if #sessionFiles > 1 then
-            -- Small spacer so the close button never sits flush against the label,
-            -- reducing accidental "close" clicks when aiming for the tab itself.
-            create("Frame", {
-                Name = "TabCloseSpacer",
-                LayoutOrder = 2,
-                Size = UDim2.new(0, 4, 1, 0),
-                BackgroundTransparency = 1
-            }).Parent = tabBtn
-
             local closeBtn = create("TextButton", {
-                Name = "TabCloseButton",
-                LayoutOrder = 3,
-                Size = UDim2.new(0, 18, 0, 18),
-                AnchorPoint = Vector2.new(0, 0.5),
-                Position = UDim2.new(0, 0, 0.5, 0),
+                Name = "FileRowClose",
+                Size = UDim2.new(0, 20, 0, 20),
+                AnchorPoint = Vector2.new(1, 0.5),
+                Position = UDim2.new(1, -4, 0.5, 0),
                 BackgroundTransparency = 1,
                 Text = "×",
                 TextColor3 = Theme.TextMuted,
                 Font = Enum.Font.GothamBold,
                 TextSize = 13
             })
-            closeBtn.Parent = tabBtn
-            applyHover(closeBtn, Theme.SurfaceDark, Theme.Border)
+            closeBtn.Parent = row
+            closeBtn.MouseEnter:Connect(function() closeBtn.TextColor3 = Theme.Text end)
+            closeBtn.MouseLeave:Connect(function() closeBtn.TextColor3 = Theme.TextMuted end)
             closeBtn.MouseButton1Click:Connect(function() deleteFile(i) end)
         end
 
-        if isActive then
-            create("Frame", {
-                Size = UDim2.new(1, 0, 0, 2), Position = UDim2.new(0, 0, 1, -2),
-                BackgroundColor3 = Theme.Accent
-            }).Parent = tabBtn
-        end
-
-        tabBtn.Parent = FileTabsScroll
+        row.Parent = FileListScroll
     end
 end
 
@@ -1753,19 +2006,38 @@ local ChatScroll = create("ScrollingFrame", {
 })
 ChatScroll.Parent = ChatArea
 
+local INPUT_FRAME_HEIGHT = 60
+
 local InputFrame = create("Frame", {
-    Size = UDim2.new(1, -20, 0, 35), 
-    Position = UDim2.new(0, 10, 1, -65), 
+    Size = UDim2.new(1, -20, 0, INPUT_FRAME_HEIGHT), 
+    Position = UDim2.new(0, 10, 1, -(INPUT_FRAME_HEIGHT + 30)), 
     BackgroundColor3 = Theme.Surface, 
-    BorderSizePixel = 0
+    BorderSizePixel = 0,
+    ClipsDescendants = true
 }, {
     create("UICorner", {CornerRadius = UDim.new(0, 8)})
 })
 InputFrame.Parent = ChatArea
 
+-- Scrollable container so long/multi-line prompts stay clipped inside the
+-- rounded input box instead of spilling out over the rest of the UI.
+local InputScroll = create("ScrollingFrame", {
+    Size = UDim2.new(1, -40, 1, -10),
+    Position = UDim2.new(0, 10, 0, 5),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    ScrollBarThickness = 4,
+    ScrollBarImageColor3 = Theme.Border,
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    ClipsDescendants = true
+})
+InputScroll.Parent = InputFrame
+
 local ChatInput = create("TextBox", {
-    Size = UDim2.new(1, -40, 1, 0), 
-    Position = UDim2.new(0, 10, 0, 0), 
+    Size = UDim2.new(1, -6, 0, 0), 
+    Position = UDim2.new(0, 0, 0, 0), 
+    AutomaticSize = Enum.AutomaticSize.Y,
     BackgroundTransparency = 1, 
     Text = "", 
     PlaceholderText = "Message AI...", 
@@ -1773,10 +2045,13 @@ local ChatInput = create("TextBox", {
     PlaceholderColor3 = Theme.TextMuted, 
     Font = Enum.Font.Gotham, 
     TextSize = 13, 
+    TextWrapped = true,
+    MultiLine = true,
     TextXAlignment = Enum.TextXAlignment.Left, 
+    TextYAlignment = Enum.TextYAlignment.Top,
     ClearTextOnFocus = false
 })
-ChatInput.Parent = InputFrame
+ChatInput.Parent = InputScroll
 
 local SettingsBar = create("Frame", {
     Size = UDim2.new(1, -20, 0, 20),
@@ -2471,6 +2746,24 @@ ChatInput.FocusLost:Connect(function(enterPressed)
     if enterPressed then 
         handleSend() 
     end 
+end)
+
+-- ChatInput is now MultiLine, so plain Enter no longer fires FocusLost(enterPressed).
+-- Mirror the common chat-app convention: Enter sends, Shift+Enter inserts a newline.
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if input.KeyCode ~= Enum.KeyCode.Return and input.KeyCode ~= Enum.KeyCode.KeypadEnter then return end
+    if UserInputService:GetFocusedTextBox() ~= ChatInput then return end
+
+    local shiftHeld = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+    if shiftHeld then return end -- allow the newline
+
+    -- Strip the newline the multi-line TextBox just inserted, then send.
+    task.defer(function()
+        if ChatInput.Text:sub(-1) == "\n" then
+            ChatInput.Text = ChatInput.Text:sub(1, -2)
+        end
+        handleSend()
+    end)
 end)
 
 if config.ApiKey == "" then 
