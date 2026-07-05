@@ -36,6 +36,7 @@ local currentSessionId = tostring(os.time())
 local saveSession
 local loadSession
 local updateSessionList
+local loadPlugins
 local config = {
     ApiKey = "",
     Model = "openai/gpt-4o-mini",
@@ -46,7 +47,8 @@ local config = {
         "openai/gpt-4o-mini",
         "deepseek/deepseek-r1:free",
         "google/gemini-2.0-flash-lite-preview-02-05:free"
-    }
+    },
+    PluginMeta = {} -- [fileName] = {DisplayName = string|nil, Enabled = bool}
 }
 
 if not isfolder(CONFIG_DIR) then 
@@ -429,6 +431,58 @@ local PluginsBtn = create("TextButton", {
 })
 PluginsBtn.Parent = TopBar
 applyHover(PluginsBtn, Theme.Surface, Theme.Border)
+
+-- Tiny arrow button, right of the Plugins button, that opens the Plugin UI dropdown
+-- (lists the panel-toggle buttons that plugins register via api:CreatePanel()).
+local PluginUIBtn = create("TextButton", {
+    Size = UDim2.new(0, 26, 0, 30), 
+    Position = UDim2.new(0, 366, 0.5, -15), 
+    BackgroundColor3 = Theme.Surface, 
+    Text = "▾", 
+    TextColor3 = Theme.TextMuted, 
+    Font = Enum.Font.Gotham, 
+    TextSize = 14
+}, {
+    create("UICorner", {CornerRadius = UDim.new(0, 6)})
+})
+PluginUIBtn.Parent = TopBar
+applyHover(PluginUIBtn, Theme.Surface, Theme.Border)
+
+-- Plugin UI Dropdown: lists the panel-toggle buttons that plugins register via api:CreatePanel().
+local PluginTabsDropdown = create("Frame", {
+    Name = "PluginTabsDropdown",
+    Size = UDim2.new(0, 200, 0, 40),
+    Position = UDim2.new(0, 0, 0, 44), -- repositioned under PluginUIBtn once ScreenGui/MainIDEFrame exist
+    BackgroundColor3 = Theme.SurfaceDark,
+    Visible = false,
+    ZIndex = 55
+}, {
+    create("UICorner", {CornerRadius = UDim.new(0, 8)}),
+    create("UIStroke", {Color = Theme.Border, Thickness = 1})
+})
+
+local PluginTabsList = create("ScrollingFrame", {
+    Size = UDim2.new(1, -10, 1, -10),
+    Position = UDim2.new(0, 5, 0, 5),
+    BackgroundTransparency = 1,
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    ScrollBarThickness = 3,
+    ScrollBarImageColor3 = Theme.Border,
+    ZIndex = 56
+}, {
+    create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 4)})
+})
+PluginTabsList.Parent = PluginTabsDropdown
+PluginTabsDropdown.Parent = ScreenGui
+
+PluginUIBtn.MouseButton1Click:Connect(function()
+    PluginTabsDropdown.Position = UDim2.new(
+        0, PluginUIBtn.AbsolutePosition.X - ScreenGui.AbsolutePosition.X,
+        0, PluginUIBtn.AbsolutePosition.Y - ScreenGui.AbsolutePosition.Y + PluginUIBtn.AbsoluteSize.Y + 4
+    )
+    PluginTabsDropdown.Visible = not PluginTabsDropdown.Visible
+end)
 -- Plugins Window (parented to ScreenGui so it can be dragged outside the main IDE)
 local PluginsWindow = create("Frame", {
     Name = "PluginsWindow",
@@ -455,7 +509,7 @@ PluginsTopBar.Parent = PluginsWindow
 
 create("TextLabel", {
     Text = "[P] Plugins",
-    Size = UDim2.new(1, -160, 1, 0),
+    Size = UDim2.new(1, -230, 1, 0),
     Position = UDim2.new(0, 12, 0, 0),
     BackgroundTransparency = 1,
     TextColor3 = Theme.Text,
@@ -464,9 +518,21 @@ create("TextLabel", {
     TextXAlignment = Enum.TextXAlignment.Left
 }).Parent = PluginsTopBar
 
+local AddPluginBtn = create("TextButton", {
+    Size = UDim2.new(0, 68, 0, 24),
+    Position = UDim2.new(1, -183, 0.5, -12),
+    BackgroundColor3 = Theme.Surface,
+    Text = "+ Add",
+    TextColor3 = Theme.Text,
+    Font = Enum.Font.GothamMedium,
+    TextSize = 11
+}, {create("UICorner", {CornerRadius = UDim.new(0, 5)})})
+AddPluginBtn.Parent = PluginsTopBar
+applyHover(AddPluginBtn, Theme.Surface, Theme.Border)
+
 local ReloadPluginsBtn = create("TextButton", {
-    Size = UDim2.new(0, 75, 0, 24),
-    Position = UDim2.new(1, -115, 0.5, -12),
+    Size = UDim2.new(0, 68, 0, 24),
+    Position = UDim2.new(1, -109, 0.5, -12),
     BackgroundColor3 = Theme.Accent,
     Text = "Reload",
     TextColor3 = Theme.Text,
@@ -518,7 +584,192 @@ PluginsBtn.MouseButton1Click:Connect(function()
     PluginsWindow.Visible = not PluginsWindow.Visible
 end)
 
+-- === Add Plugin modal ===
+local AddPluginWindow = create("Frame", {
+    Name = "AddPluginWindow",
+    Size = UDim2.new(0, 420, 0, 400),
+    Position = UDim2.new(0.5, -210, 0.5, -200),
+    BackgroundColor3 = Theme.Background,
+    Visible = false,
+    ZIndex = 70
+}, {
+    create("UICorner", {CornerRadius = UDim.new(0, 10)}),
+    create("UIStroke", {Color = Theme.Border, Thickness = 1})
+})
+
+local AddPluginTopBar = create("Frame", {
+    Size = UDim2.new(1, 0, 0, 35),
+    BackgroundColor3 = Theme.SurfaceDark,
+    ZIndex = 70
+}, {
+    create("UICorner", {CornerRadius = UDim.new(0, 10)}),
+    create("Frame", {Size = UDim2.new(1, 0, 0, 10), Position = UDim2.new(0, 0, 1, -10), BackgroundColor3 = Theme.SurfaceDark, BorderSizePixel = 0, ZIndex = 70})
+})
+AddPluginTopBar.Parent = AddPluginWindow
+
+create("TextLabel", {
+    Text = "New Plugin",
+    Size = UDim2.new(1, -40, 1, 0),
+    Position = UDim2.new(0, 12, 0, 0),
+    BackgroundTransparency = 1,
+    TextColor3 = Theme.Text,
+    Font = Enum.Font.GothamBold,
+    TextSize = 14,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 70
+}).Parent = AddPluginTopBar
+
+local CloseAddPluginBtn = create("TextButton", {
+    Size = UDim2.new(0, 35, 0, 35), Position = UDim2.new(1, -35, 0, 0),
+    BackgroundTransparency = 1, Text = "X",
+    TextColor3 = Theme.TextMuted, Font = Enum.Font.GothamBold, TextSize = 14, ZIndex = 70
+})
+CloseAddPluginBtn.Parent = AddPluginTopBar
+CloseAddPluginBtn.MouseButton1Click:Connect(function() AddPluginWindow.Visible = false end)
+makeDraggable(AddPluginWindow, AddPluginTopBar)
+
+create("TextLabel", {
+    Text = "Filename (no .lua)",
+    Size = UDim2.new(1, -20, 0, 16),
+    Position = UDim2.new(0, 10, 0, 43),
+    BackgroundTransparency = 1,
+    TextColor3 = Theme.TextMuted,
+    Font = Enum.Font.Gotham,
+    TextSize = 11,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 70
+}).Parent = AddPluginWindow
+
+local NewPluginNameBox = create("TextBox", {
+    Size = UDim2.new(1, -20, 0, 30),
+    Position = UDim2.new(0, 10, 0, 61),
+    BackgroundColor3 = Theme.Surface,
+    Text = "",
+    PlaceholderText = "MyPlugin",
+    TextColor3 = Theme.Text,
+    Font = Enum.Font.RobotoMono,
+    TextSize = 12,
+    ClearTextOnFocus = false,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 70
+}, {
+    create("UICorner", {CornerRadius = UDim.new(0, 5)}),
+    create("UIPadding", {PaddingLeft = UDim.new(0, 8)})
+})
+NewPluginNameBox.Parent = AddPluginWindow
+
+create("TextLabel", {
+    Text = "Plugin code",
+    Size = UDim2.new(1, -20, 0, 16),
+    Position = UDim2.new(0, 10, 0, 98),
+    BackgroundTransparency = 1,
+    TextColor3 = Theme.TextMuted,
+    Font = Enum.Font.Gotham,
+    TextSize = 11,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 70
+}).Parent = AddPluginWindow
+
+local NewPluginCodeScroll = create("ScrollingFrame", {
+    Size = UDim2.new(1, -20, 1, -175),
+    Position = UDim2.new(0, 10, 0, 116),
+    BackgroundColor3 = Theme.CodeBackground,
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    ScrollBarThickness = 4,
+    ScrollBarImageColor3 = Theme.Border,
+    ZIndex = 70
+}, {
+    create("UICorner", {CornerRadius = UDim.new(0, 5)}),
+    create("UIStroke", {Color = Theme.Border, Thickness = 1})
+})
+NewPluginCodeScroll.Parent = AddPluginWindow
+
+local NewPluginCodeBox = create("TextBox", {
+    Size = UDim2.new(1, -16, 1, 0),
+    Position = UDim2.new(0, 8, 0, 0),
+    BackgroundTransparency = 1,
+    Text = "return function(api)\n    api:Log(\"" .. "New plugin loaded!\")\nend",
+    TextColor3 = Theme.Text,
+    Font = Enum.Font.RobotoMono,
+    TextSize = 12,
+    MultiLine = true,
+    ClearTextOnFocus = false,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextYAlignment = Enum.TextYAlignment.Top,
+    TextWrapped = true,
+    AutomaticSize = Enum.AutomaticSize.Y,
+    ZIndex = 70
+})
+NewPluginCodeBox.Parent = NewPluginCodeScroll
+
+local AddPluginStatusLabel = create("TextLabel", {
+    Size = UDim2.new(1, -100, 0, 30),
+    Position = UDim2.new(0, 10, 1, -40),
+    BackgroundTransparency = 1,
+    Text = "",
+    TextColor3 = Color3.fromRGB(248, 113, 113),
+    Font = Enum.Font.Gotham,
+    TextSize = 11,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextWrapped = true,
+    ZIndex = 70
+})
+AddPluginStatusLabel.Parent = AddPluginWindow
+
+local SavePluginBtn = create("TextButton", {
+    Size = UDim2.new(0, 90, 0, 30),
+    Position = UDim2.new(1, -100, 1, -40),
+    BackgroundColor3 = Theme.Accent,
+    Text = "Save",
+    TextColor3 = Theme.Text,
+    Font = Enum.Font.GothamMedium,
+    TextSize = 12,
+    ZIndex = 70
+}, {create("UICorner", {CornerRadius = UDim.new(0, 6)})})
+SavePluginBtn.Parent = AddPluginWindow
+applyHover(SavePluginBtn, Theme.Accent, Theme.AccentHover)
+
+AddPluginBtn.MouseButton1Click:Connect(function()
+    NewPluginNameBox.Text = ""
+    NewPluginCodeBox.Text = "return function(api)\n    api:Log(\"New plugin loaded!\")\nend"
+    AddPluginStatusLabel.Text = ""
+    AddPluginWindow.Visible = true
+end)
+
+SavePluginBtn.MouseButton1Click:Connect(function()
+    local rawName = NewPluginNameBox.Text:gsub("%.lua$", ""):gsub("%s+", "")
+    if rawName == "" then
+        AddPluginStatusLabel.Text = "Enter a filename first."
+        return
+    end
+    if not rawName:match("^[%w_]+$") then
+        AddPluginStatusLabel.Text = "Filename must be alphanumeric/underscore only."
+        return
+    end
+    local targetPath = PLUGINS_DIR .. "/" .. rawName .. ".lua"
+    if isfile(targetPath) then
+        AddPluginStatusLabel.Text = "A plugin named " .. rawName .. ".lua already exists."
+        return
+    end
+    local fn, parseErr = loadstring(NewPluginCodeBox.Text)
+    if not fn then
+        AddPluginStatusLabel.Text = "Syntax error: " .. tostring(parseErr)
+        return
+    end
+    local ok, err = pcall(writefile, targetPath, NewPluginCodeBox.Text)
+    if not ok then
+        AddPluginStatusLabel.Text = "Failed to write file: " .. tostring(err)
+        return
+    end
+    config.PluginMeta[rawName] = config.PluginMeta[rawName] or {Enabled = true}
+    saveConfig()
+    AddPluginWindow.Visible = false
+    loadPlugins()
+end)
+
 -- Parent to ScreenGui so the window can be dragged freely outside the main IDE
+AddPluginWindow.Parent = ScreenGui
 PluginsWindow.Parent = ScreenGui
 makeDraggable(PluginsWindow, PluginsTopBar)
 makeResizable(PluginsWindow, Vector2.new(280, 300))
@@ -2253,7 +2504,20 @@ if not loadLatestSession() then
 end
 
 -- === PLUGIN SYSTEM ===
-local loadedPlugins = {} -- {name, status, error}
+local loadedPlugins = {} -- {name, status, error, commands}
+local pluginPanelToggles = {} -- {fileName, defaultLabel, toggle} registered via api:CreatePanel()
+
+local function pluginEnabled(fileName)
+    local meta = config.PluginMeta[fileName]
+    if not meta or meta.Enabled == nil then return true end
+    return meta.Enabled and true or false
+end
+
+local function pluginDisplayName(fileName, fallback)
+    local meta = config.PluginMeta[fileName]
+    if meta and meta.DisplayName and meta.DisplayName ~= "" then return meta.DisplayName end
+    return fallback or fileName
+end
 
 local function createPluginAPI(pluginName)
     local api = {}
@@ -2295,22 +2559,10 @@ local function createPluginAPI(pluginName)
         handleSend()
     end
     
-    -- Create a dedicated panel tab in the sidebar for this plugin
+    -- Create a dedicated floating panel window for this plugin.
+    -- The button to open/close it lives in the "Plugin UI" dropdown on the IDE top bar.
     -- Returns a Frame the plugin can populate with its own UI
     api.CreatePanel = function(_, labelText)
-        local tabBtn = create("TextButton", {
-            Size = UDim2.new(1, -20, 0, 32),
-            BackgroundColor3 = Theme.Surface,
-            Text = labelText or pluginName,
-            TextColor3 = Theme.Text,
-            Font = Enum.Font.GothamMedium,
-            TextSize = 12,
-            AutoButtonColor = false
-        }, {
-            create("UICorner", {CornerRadius = UDim.new(0, 6)})
-        })
-        tabBtn.Parent = PluginsList
-        
         -- Create a floating panel window parented to ScreenGui
         local panel = create("Frame", {
             Name = pluginName .. "Panel",
@@ -2323,6 +2575,7 @@ local function createPluginAPI(pluginName)
             create("UICorner", {CornerRadius = UDim.new(0, 10)}),
             create("UIStroke", {Color = Theme.Border, Thickness = 1})
         })
+        panel:SetAttribute("PluginPanel", true)
         panel.Parent = ScreenGui
         
         local panelTopBar = create("Frame", {
@@ -2362,7 +2615,11 @@ local function createPluginAPI(pluginName)
         })
         content.Parent = panel
         
-        tabBtn.MouseButton1Click:Connect(function() panel.Visible = not panel.Visible end)
+        table.insert(pluginPanelToggles, {
+            fileName = pluginName,
+            defaultLabel = labelText or pluginName,
+            toggle = function() panel.Visible = not panel.Visible end
+        })
         
         return content, panel
     end
@@ -2379,7 +2636,7 @@ local function refreshPluginsUI()
         create("TextLabel", {
             Size = UDim2.new(1, 0, 0, 80),
             BackgroundTransparency = 1,
-            Text = "No plugins found.\n\nDrop .lua files into:\n" .. PLUGINS_DIR,
+            Text = "No plugins found.\n\nDrop .lua files into:\n" .. PLUGINS_DIR .. "\nor use + Add above.",
             TextColor3 = Theme.TextMuted,
             Font = Enum.Font.Gotham,
             TextSize = 12,
@@ -2393,17 +2650,23 @@ local function refreshPluginsUI()
     end
     
     for i, plugin in ipairs(loadedPlugins) do
-        local isLoaded = plugin.status == "loaded"
-        local statusColor = isLoaded and Color3.fromRGB(74, 222, 128) or Color3.fromRGB(248, 113, 113)
-        local statusBg = isLoaded and Color3.fromRGB(20, 60, 30) or Color3.fromRGB(60, 20, 20)
+        local status = plugin.status -- "loaded" | "error" | "disabled"
+        local statusColor, statusBg, statusText, strokeColor
+        if status == "loaded" then
+            statusColor, statusBg, statusText, strokeColor = Color3.fromRGB(74, 222, 128), Color3.fromRGB(20, 60, 30), "OK", Color3.fromRGB(30, 80, 40)
+        elseif status == "disabled" then
+            statusColor, statusBg, statusText, strokeColor = Theme.TextMuted, Theme.SurfaceDark, "OFF", Theme.Border
+        else
+            statusColor, statusBg, statusText, strokeColor = Color3.fromRGB(248, 113, 113), Color3.fromRGB(60, 20, 20), "ERR", Color3.fromRGB(80, 30, 30)
+        end
         
         local row = create("Frame", {
-            Size = UDim2.new(1, 0, 0, 58),
+            Size = UDim2.new(1, 0, 0, 88),
             BackgroundColor3 = Theme.Surface,
             LayoutOrder = i
         }, {
             create("UICorner", {CornerRadius = UDim.new(0, 6)}),
-            create("UIStroke", {Color = isLoaded and Color3.fromRGB(30, 80, 40) or Color3.fromRGB(80, 30, 30), Thickness = 1}),
+            create("UIStroke", {Color = strokeColor, Thickness = 1}),
             create("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8)})
         })
         
@@ -2418,7 +2681,7 @@ local function refreshPluginsUI()
             create("TextLabel", {
                 Size = UDim2.new(1, 0, 1, 0),
                 BackgroundTransparency = 1,
-                Text = isLoaded and "OK" or "ERR",
+                Text = statusText,
                 TextColor3 = statusColor,
                 Font = Enum.Font.GothamBold,
                 TextSize = 10
@@ -2426,20 +2689,45 @@ local function refreshPluginsUI()
         })
         badge.Parent = row
         
-        create("TextLabel", {
+        local displayOverride = config.PluginMeta[plugin.name] and config.PluginMeta[plugin.name].DisplayName
+        local nameText = displayOverride and (displayOverride .. "  (" .. plugin.name .. ".lua)") or (plugin.name .. ".lua")
+        
+        local nameLabel = create("TextLabel", {
             Size = UDim2.new(1, -50, 0, 16),
             Position = UDim2.new(0, 0, 0, 0),
             BackgroundTransparency = 1,
-            Text = plugin.name .. ".lua",
+            Text = nameText,
             TextColor3 = Theme.Text,
             Font = Enum.Font.GothamBold,
             TextSize = 12,
             TextXAlignment = Enum.TextXAlignment.Left,
             TextTruncate = Enum.TextTruncate.AtEnd
-        }).Parent = row
+        })
+        nameLabel.Parent = row
         
-        local subText = isLoaded
+        local renameBox = create("TextBox", {
+            Size = UDim2.new(1, -50, 0, 18),
+            Position = UDim2.new(0, 0, 0, -1),
+            BackgroundColor3 = Theme.SurfaceDark,
+            Text = displayOverride or plugin.name,
+            PlaceholderText = "Display name...",
+            TextColor3 = Theme.Text,
+            Font = Enum.Font.Gotham,
+            TextSize = 11,
+            ClearTextOnFocus = false,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Visible = false,
+            ZIndex = 2
+        }, {
+            create("UICorner", {CornerRadius = UDim.new(0, 4)}),
+            create("UIPadding", {PaddingLeft = UDim.new(0, 4)})
+        })
+        renameBox.Parent = row
+        
+        local subText = status == "loaded"
             and ("cmds: " .. (#plugin.commands > 0 and table.concat(plugin.commands, ", ") or "none"))
+            or status == "disabled"
+            and "Disabled — click Enable to load it."
             or ("Error: " .. tostring(plugin.error):sub(1, 70))
         
         create("TextLabel", {
@@ -2447,23 +2735,133 @@ local function refreshPluginsUI()
             Position = UDim2.new(0, 0, 0, 19),
             BackgroundTransparency = 1,
             Text = subText,
-            TextColor3 = isLoaded and Theme.TextMuted or Color3.fromRGB(248, 113, 113),
+            TextColor3 = status == "loaded" and Theme.TextMuted or (status == "disabled" and Theme.TextMuted or Color3.fromRGB(248, 113, 113)),
             Font = Enum.Font.Gotham,
             TextSize = 10,
             TextWrapped = true,
             TextXAlignment = Enum.TextXAlignment.Left
         }).Parent = row
         
+        -- Rename control
+        local renameBtn = create("TextButton", {
+            Size = UDim2.new(0.48, 0, 0, 22),
+            Position = UDim2.new(0, 0, 0, 50),
+            BackgroundColor3 = Theme.SurfaceDark,
+            Text = "Rename",
+            TextColor3 = Theme.TextMuted,
+            Font = Enum.Font.Gotham,
+            TextSize = 10
+        }, {create("UICorner", {CornerRadius = UDim.new(0, 4)})})
+        renameBtn.Parent = row
+        applyHover(renameBtn, Theme.SurfaceDark, Theme.Border)
+        
+        renameBtn.MouseButton1Click:Connect(function()
+            renameBox.Visible = not renameBox.Visible
+            nameLabel.Visible = not renameBox.Visible
+            if renameBox.Visible then renameBox:CaptureFocus() end
+        end)
+        
+        renameBox.FocusLost:Connect(function(enterPressed)
+            if enterPressed then
+                local newName = renameBox.Text:match("^%s*(.-)%s*$")
+                config.PluginMeta[plugin.name] = config.PluginMeta[plugin.name] or {}
+                if newName == "" or newName == plugin.name then
+                    config.PluginMeta[plugin.name].DisplayName = nil
+                else
+                    config.PluginMeta[plugin.name].DisplayName = newName
+                end
+                saveConfig()
+                refreshPluginsUI()
+                refreshPluginTabsDropdown()
+            else
+                renameBox.Visible = false
+                nameLabel.Visible = true
+            end
+        end)
+        
+        -- Enable/disable control
+        local isEnabled = pluginEnabled(plugin.name)
+        local toggleBtn = create("TextButton", {
+            Size = UDim2.new(0.48, 0, 0, 22),
+            Position = UDim2.new(0.52, 0, 0, 50),
+            BackgroundColor3 = isEnabled and Color3.fromRGB(20, 60, 30) or Color3.fromRGB(60, 20, 20),
+            Text = isEnabled and "Disable" or "Enable",
+            TextColor3 = isEnabled and Color3.fromRGB(74, 222, 128) or Color3.fromRGB(248, 113, 113),
+            Font = Enum.Font.GothamMedium,
+            TextSize = 10
+        }, {create("UICorner", {CornerRadius = UDim.new(0, 4)})})
+        toggleBtn.Parent = row
+        
+        toggleBtn.MouseButton1Click:Connect(function()
+            config.PluginMeta[plugin.name] = config.PluginMeta[plugin.name] or {}
+            config.PluginMeta[plugin.name].Enabled = not isEnabled
+            saveConfig()
+            loadPlugins()
+        end)
+        
         row.Parent = PluginsList
     end
 end
 
-local function loadPlugins()
+function refreshPluginTabsDropdown()
+    for _, c in ipairs(PluginTabsList:GetChildren()) do
+        if not c:IsA("UIListLayout") then c:Destroy() end
+    end
+    
+    if #pluginPanelToggles == 0 then
+        create("TextLabel", {
+            Size = UDim2.new(1, 0, 0, 28),
+            BackgroundTransparency = 1,
+            Text = "No plugin panels open.",
+            TextColor3 = Theme.TextMuted,
+            Font = Enum.Font.Gotham,
+            TextSize = 11,
+            TextWrapped = true,
+            AutomaticSize = Enum.AutomaticSize.Y,
+            ZIndex = 56,
+            Parent = PluginTabsList
+        })
+        return
+    end
+    
+    for i, entry in ipairs(pluginPanelToggles) do
+        local label = pluginDisplayName(entry.fileName, entry.defaultLabel)
+        local btn = create("TextButton", {
+            Size = UDim2.new(1, 0, 0, 30),
+            BackgroundColor3 = Theme.Surface,
+            Text = label,
+            TextColor3 = Theme.Text,
+            Font = Enum.Font.GothamMedium,
+            TextSize = 12,
+            AutoButtonColor = false,
+            LayoutOrder = i,
+            ZIndex = 56
+        }, {create("UICorner", {CornerRadius = UDim.new(0, 5)})})
+        btn.Parent = PluginTabsList
+        applyHover(btn, Theme.Surface, Theme.Border)
+        btn.MouseButton1Click:Connect(function()
+            entry.toggle()
+            PluginTabsDropdown.Visible = false
+        end)
+    end
+end
+
+loadPlugins = function()
     -- Clear all plugin state including event callbacks
     pluginCommands = {}
     loadedPlugins = {}
     pluginOnAIResponseCallbacks = {}
     pluginOnCodeChangeCallbacks = {}
+    pluginPanelToggles = {}
+
+    -- Remove tab buttons left over from an older version of this script, if any
+    for _, c in ipairs(PluginsList:GetChildren()) do
+        if c:GetAttribute("PluginTab") then c:Destroy() end
+    end
+    -- Remove floating panels created by CreatePanel on any previous load
+    for _, c in ipairs(ScreenGui:GetChildren()) do
+        if c:GetAttribute("PluginPanel") then c:Destroy() end
+    end
     
     pcall(function()
         if not listfiles then return end
@@ -2472,30 +2870,34 @@ local function loadPlugins()
                 local fileName = filePath:match("([^/\\]+)%.lua$") or filePath
                 local pluginInfo = {name = fileName, status = "error", error = "", commands = {}}
                 
-                local ok, result = pcall(function()
-                    local src = readfile(filePath)
-                    local fn, parseErr = loadstring(src)
-                    if not fn then error(parseErr) end
-                    
-                    local api = createPluginAPI(fileName)
-                    -- Wrap RegisterCommand to track which commands this plugin adds
-                    local origReg = api.RegisterCommand
-                    api.RegisterCommand = function(self, cmdName, fn2)
-                        table.insert(pluginInfo.commands, cmdName)
-                        origReg(self, cmdName, fn2)
-                    end
-                    
-                    local pluginFn = fn()
-                    if type(pluginFn) == "function" then
-                        pluginFn(api)
-                    end
-                end)
-                
-                if ok then
-                    pluginInfo.status = "loaded"
+                if not pluginEnabled(fileName) then
+                    pluginInfo.status = "disabled"
                 else
-                    pluginInfo.error = tostring(result)
-                    logToConsole("error", "[Plugin:" .. fileName .. "] " .. tostring(result))
+                    local ok, result = pcall(function()
+                        local src = readfile(filePath)
+                        local fn, parseErr = loadstring(src)
+                        if not fn then error(parseErr) end
+                        
+                        local api = createPluginAPI(fileName)
+                        -- Wrap RegisterCommand to track which commands this plugin adds
+                        local origReg = api.RegisterCommand
+                        api.RegisterCommand = function(self, cmdName, fn2)
+                            table.insert(pluginInfo.commands, cmdName)
+                            origReg(self, cmdName, fn2)
+                        end
+                        
+                        local pluginFn = fn()
+                        if type(pluginFn) == "function" then
+                            pluginFn(api)
+                        end
+                    end)
+                    
+                    if ok then
+                        pluginInfo.status = "loaded"
+                    else
+                        pluginInfo.error = tostring(result)
+                        logToConsole("error", "[Plugin:" .. fileName .. "] " .. tostring(result))
+                    end
                 end
                 
                 table.insert(loadedPlugins, pluginInfo)
@@ -2504,6 +2906,7 @@ local function loadPlugins()
     end)
     
     refreshPluginsUI()
+    refreshPluginTabsDropdown()
 end
 
 ReloadPluginsBtn.MouseButton1Click:Connect(function()
