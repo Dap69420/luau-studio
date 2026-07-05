@@ -1,3 +1,13 @@
+--[[
+    Roblox AI Studio IDE - Upgraded
+    Features:
+    - Smooth UI Animations
+    - Chat Markdown Formatting & Code Syntax Highlighting
+    - Deep AI Context Engine (Console & Editor Awareness)
+    - Full IDE Layout
+    - Game Context Commands (!read, !ls)
+]]
+
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
@@ -28,6 +38,9 @@ end
 local CONFIG_DIR = "Roblox_AI_Assistant"
 local CONFIG_FILE = CONFIG_DIR .. "/config.json"
 local SESSIONS_DIR = CONFIG_DIR .. "/sessions"
+local PLUGINS_DIR = CONFIG_DIR .. "/plugins"
+
+local pluginCommands = {} -- populated by plugins via api:RegisterCommand
 
 local currentSessionId = tostring(os.time())
 local saveSession
@@ -52,6 +65,10 @@ end
 
 if not isfolder(SESSIONS_DIR) then 
     pcall(makefolder, SESSIONS_DIR) 
+end
+
+if not isfolder(PLUGINS_DIR) then
+    pcall(makefolder, PLUGINS_DIR)
 end
 
 if isfile(CONFIG_FILE) then
@@ -320,6 +337,11 @@ local MainIDEFrame = create("Frame", {
 MainIDEFrame.Parent = ScreenGui
 makeResizable(MainIDEFrame, Vector2.new(600, 400))
 
+-- Parent PluginsWindow to ScreenGui so it can be dragged outside the main frame
+PluginsWindow.Parent = ScreenGui
+makeDraggable(PluginsWindow, PluginsTopBar)
+makeResizable(PluginsWindow, Vector2.new(280, 300))
+
 -- Top Bar
 local TopBar = create("Frame", {
     Size = UDim2.new(1, 0, 0, 40), 
@@ -407,6 +429,108 @@ local ConsoleToggleBtn = create("TextButton", {
 })
 ConsoleToggleBtn.Parent = TopBar
 applyHover(ConsoleToggleBtn, Theme.Surface, Theme.Border)
+
+local PluginsBtn = create("TextButton", {
+    Size = UDim2.new(0, 80, 0, 30), 
+    Position = UDim2.new(0, 280, 0.5, -15), 
+    BackgroundColor3 = Theme.Surface, 
+    Text = "Plugins", 
+    TextColor3 = Theme.TextMuted, 
+    Font = Enum.Font.GothamMedium, 
+    TextSize = 12
+}, {
+    create("UICorner", {CornerRadius = UDim.new(0, 6)})
+})
+PluginsBtn.Parent = TopBar
+applyHover(PluginsBtn, Theme.Surface, Theme.Border)
+-- Plugins Window (parented to ScreenGui so it can be dragged outside the main IDE)
+local PluginsWindow = create("Frame", {
+    Name = "PluginsWindow",
+    Size = UDim2.new(0, 340, 0, 420),
+    Position = UDim2.new(0.5, 440, 0.5, -210),
+    BackgroundColor3 = Theme.Background,
+    Visible = false,
+    ZIndex = 50
+}, {
+    create("UICorner", {CornerRadius = UDim.new(0, 10)}),
+    create("UIStroke", {Color = Theme.Border, Thickness = 1})
+})
+-- Will be parented to ScreenGui after ScreenGui is created (below)
+
+local PluginsTopBar = create("Frame", {
+    Size = UDim2.new(1, 0, 0, 35),
+    BackgroundColor3 = Theme.SurfaceDark,
+    BorderSizePixel = 0
+}, {
+    create("UICorner", {CornerRadius = UDim.new(0, 10)}),
+    create("Frame", {Size = UDim2.new(1, 0, 0, 10), Position = UDim2.new(0, 0, 1, -10), BackgroundColor3 = Theme.SurfaceDark, BorderSizePixel = 0})
+})
+PluginsTopBar.Parent = PluginsWindow
+
+create("TextLabel", {
+    Text = "[P] Plugins",
+    Size = UDim2.new(1, -160, 1, 0),
+    Position = UDim2.new(0, 12, 0, 0),
+    BackgroundTransparency = 1,
+    TextColor3 = Theme.Text,
+    Font = Enum.Font.GothamBold,
+    TextSize = 14,
+    TextXAlignment = Enum.TextXAlignment.Left
+}).Parent = PluginsTopBar
+
+local ReloadPluginsBtn = create("TextButton", {
+    Size = UDim2.new(0, 75, 0, 24),
+    Position = UDim2.new(1, -115, 0.5, -12),
+    BackgroundColor3 = Theme.Accent,
+    Text = "Reload",
+    TextColor3 = Theme.Text,
+    Font = Enum.Font.GothamMedium,
+    TextSize = 11
+}, {create("UICorner", {CornerRadius = UDim.new(0, 5)})})
+ReloadPluginsBtn.Parent = PluginsTopBar
+applyHover(ReloadPluginsBtn, Theme.Accent, Theme.AccentHover)
+
+local ClosePluginsBtn = create("TextButton", {
+    Size = UDim2.new(0, 35, 0, 35),
+    Position = UDim2.new(1, -35, 0, 0),
+    BackgroundTransparency = 1,
+    Text = "X",
+    TextColor3 = Theme.TextMuted,
+    Font = Enum.Font.GothamBold,
+    TextSize = 14
+})
+ClosePluginsBtn.Parent = PluginsTopBar
+ClosePluginsBtn.MouseButton1Click:Connect(function() PluginsWindow.Visible = false end)
+
+local PluginsDirLabel = create("TextLabel", {
+    Size = UDim2.new(1, -16, 0, 28),
+    Position = UDim2.new(0, 8, 0, 39),
+    BackgroundTransparency = 1,
+    Text = "[folder] " .. PLUGINS_DIR .. "/",
+    TextColor3 = Theme.TextMuted,
+    Font = Enum.Font.RobotoMono,
+    TextSize = 10,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextWrapped = true
+})
+PluginsDirLabel.Parent = PluginsWindow
+
+local PluginsList = create("ScrollingFrame", {
+    Size = UDim2.new(1, -16, 1, -80),
+    Position = UDim2.new(0, 8, 0, 68),
+    BackgroundTransparency = 1,
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    ScrollBarThickness = 4,
+    ScrollBarImageColor3 = Theme.Border
+}, {
+    create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6)})
+})
+PluginsList.Parent = PluginsWindow
+
+PluginsBtn.MouseButton1Click:Connect(function()
+    PluginsWindow.Visible = not PluginsWindow.Visible
+end)
 
 -- Layout Structures
 local MiddleContent = create("Frame", {
@@ -512,9 +636,33 @@ local ClearCodeBtn = create("TextButton", {
 ClearCodeBtn.Parent = EditorTopBar
 applyHover(ClearCodeBtn, Theme.SurfaceDark, Theme.Border)
 
+-- Gutter (line numbers)
+local GutterFrame = create("Frame", {
+    Size = UDim2.new(0, 40, 1, -35),
+    Position = UDim2.new(0, 0, 0, 35),
+    BackgroundColor3 = Theme.SurfaceDark,
+    BorderSizePixel = 0,
+    ZIndex = 2,
+    ClipsDescendants = true
+})
+GutterFrame.Parent = EditorContainer
+
+local GutterScroll = create("ScrollingFrame", {
+    Size = UDim2.new(1, 0, 1, 0),
+    BackgroundTransparency = 1,
+    ScrollBarThickness = 0,
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    ScrollingEnabled = false
+}, {
+    create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder}),
+    create("UIPadding", {PaddingTop = UDim.new(0, 10)})
+})
+GutterScroll.Parent = GutterFrame
+
 local EditorScroll = create("ScrollingFrame", {
-    Size = UDim2.new(1, 0, 1, -35), 
-    Position = UDim2.new(0, 0, 0, 35), 
+    Size = UDim2.new(1, -40, 1, -35), 
+    Position = UDim2.new(0, 40, 0, 35), 
     BackgroundTransparency = 1, 
     CanvasSize = UDim2.new(0, 0, 0, 0), 
     AutomaticCanvasSize = Enum.AutomaticSize.Y, 
@@ -523,8 +671,13 @@ local EditorScroll = create("ScrollingFrame", {
 })
 EditorScroll.Parent = EditorContainer
 
+-- Sync gutter scroll with editor scroll
+EditorScroll:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+    GutterScroll.CanvasPosition = Vector2.new(0, EditorScroll.CanvasPosition.Y)
+end)
+
 local CodeInput = create("TextBox", {
-    Size = UDim2.new(1, -20, 0, 0), 
+    Size = UDim2.new(1, -10, 0, 0), 
     Position = UDim2.new(0, 10, 0, 10), 
     AutomaticSize = Enum.AutomaticSize.Y,
     BackgroundTransparency = 1, 
@@ -533,12 +686,47 @@ local CodeInput = create("TextBox", {
     TextYAlignment = Enum.TextYAlignment.Top,
     Font = Enum.Font.RobotoMono, 
     TextSize = 14, 
-    TextColor3 = Theme.Text, 
+    TextColor3 = Theme.Text,
     ClearTextOnFocus = false, 
     Text = "-- Write your Luau code here\nprint('Hello from IDE!')", 
-    PlaceholderText = "Enter Luau code..."
+    PlaceholderText = "Enter Luau code...",
+    ZIndex = 1
 })
 CodeInput.Parent = EditorScroll
+
+local pluginOnAIResponseCallbacks = {}
+local pluginOnCodeChangeCallbacks = {}
+
+local function updateLineNumbers(text)
+    local lineCount = 1
+    for _ in text:gmatch("\n") do lineCount = lineCount + 1 end
+    -- Always clear and rebuild to avoid race-condition duplicates
+    for _, c in ipairs(GutterScroll:GetChildren()) do
+        if c:IsA("TextLabel") then c:Destroy() end
+    end
+    for i = 1, lineCount do
+        create("TextLabel", {
+            Size = UDim2.new(1, -4, 0, 14),
+            BackgroundTransparency = 1,
+            Text = tostring(i),
+            TextColor3 = Theme.TextMuted,
+            Font = Enum.Font.RobotoMono,
+            TextSize = 14,
+            TextXAlignment = Enum.TextXAlignment.Right,
+            LayoutOrder = i,
+            Parent = GutterScroll
+        })
+    end
+    -- Fire plugin OnCodeChange callbacks
+    for _, cb in ipairs(pluginOnCodeChangeCallbacks) do
+        pcall(cb, text)
+    end
+end
+
+updateLineNumbers(CodeInput.Text)
+CodeInput:GetPropertyChangedSignal("Text"):Connect(function()
+    updateLineNumbers(CodeInput.Text)
+end)
 
 ClearCodeBtn.MouseButton1Click:Connect(function() 
     CodeInput.Text = "" 
@@ -693,11 +881,12 @@ SidebarContent.Parent = SidebarContainer
 
 -- Settings UI
 local SettingsArea = create("Frame", {
-    Size = UDim2.new(1, -20, 0, 180), 
-    Position = UDim2.new(0, 10, 1, -225),
+    Size = UDim2.new(1, -20, 0, 250),
+    Position = UDim2.new(0, 10, 1, -305),
     BackgroundColor3 = Theme.SurfaceDark, 
     Visible = false,
-    ZIndex = 10
+    ZIndex = 10,
+    ClipsDescendants = false
 }, {
     create("UICorner", {CornerRadius = UDim.new(0, 8)}),
     create("UIStroke", {Color = Theme.Border, Thickness = 1})
@@ -725,37 +914,46 @@ SettingsScroll.Parent = SettingsArea
 
 local function createSettingInput(labelText, defaultVal, isPassword)
     local frame = create("Frame", {
-        Size = UDim2.new(1, 0, 0, 60), 
+        Size = UDim2.new(1, 0, 0, 0), 
+        AutomaticSize = Enum.AutomaticSize.Y,
         BackgroundTransparency = 1
+    }, {
+        create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 4)})
     })
     
     create("TextLabel", {
         Text = labelText, 
-        Size = UDim2.new(1, 0, 0, 20), 
+        Size = UDim2.new(1, 0, 0, 18), 
         BackgroundTransparency = 1, 
         TextColor3 = Theme.TextMuted, 
         Font = Enum.Font.GothamMedium, 
         TextSize = 12, 
+        LayoutOrder = 0,
         TextXAlignment = Enum.TextXAlignment.Left
     }).Parent = frame
     
     local boxFrame = create("Frame", {
-        Size = UDim2.new(1, 0, 0, 35), 
-        Position = UDim2.new(0, 0, 0, 25), 
-        BackgroundColor3 = Theme.Surface
+        Size = UDim2.new(1, 0, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundColor3 = Theme.Surface,
+        LayoutOrder = 1
     }, {
-        create("UICorner", {CornerRadius = UDim.new(0, 6)})
+        create("UICorner", {CornerRadius = UDim.new(0, 6)}),
+        create("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6)})
     })
     
     local box = create("TextBox", {
-        Size = UDim2.new(1, -20, 1, 0), 
-        Position = UDim2.new(0, 10, 0, 0), 
+        Size = UDim2.new(1, 0, 0, 0), 
+        AutomaticSize = Enum.AutomaticSize.Y,
         BackgroundTransparency = 1, 
         Text = defaultVal, 
         TextColor3 = Theme.Text, 
         Font = Enum.Font.Gotham, 
         TextSize = 12, 
+        MultiLine = true,
+        TextWrapped = true,
         TextXAlignment = Enum.TextXAlignment.Left, 
+        TextYAlignment = Enum.TextYAlignment.Top,
         ClearTextOnFocus = false
     })
     
@@ -1200,6 +1398,16 @@ local function processCommands(text)
         end
     end
     
+    -- Plugin commands: if the message starts with a known !command, call it and return early
+    local firstToken = text:match("^(%S+)")
+    if firstToken and pluginCommands[firstToken:lower()] then
+        local args = text:sub(#firstToken + 2)
+        local ok, err = pcall(pluginCommands[firstToken:lower()], args)
+        if not ok then
+            context = context .. "\n\n[Plugin Error]: " .. tostring(err)
+        end
+    end
+    
     return text .. context
 end
 
@@ -1479,9 +1687,11 @@ local function handleSend()
         end
     end)
     
-    local processedText = processCommands(rawText)
+    local success, processedText = pcall(processCommands, rawText)
+    if not success then
+        processedText = rawText .. "\n\n[System Error: Failed to process commands. " .. tostring(processedText) .. "]"
+    end
     
-    -- AI Context Injection
     local contextBlock = "\n\n--- [SYSTEM CONTEXT ENGINE] ---\n"
     contextBlock = contextBlock .. "**GAME STATE:**\n"
     contextBlock = contextBlock .. string.format("- Game Name: '%s', PlaceId: %d\n", game.Name, game.PlaceId)
@@ -1507,14 +1717,19 @@ local function handleSend()
     end
     contextBlock = contextBlock .. "**RECENT CONSOLE LOGS:**\n```\n" .. (cLogStr == "" and "No logs." or cLogStr) .. "\n```"
     
-    local payloadMsg = processedText .. contextBlock
-    
-    table.insert(conversation, {role = "user", content = payloadMsg})
+    table.insert(conversation, {role = "user", content = processedText})
     
     task.spawn(function()
+        local payloadConversation = {}
+        for _, msg in ipairs(conversation) do
+            table.insert(payloadConversation, {role = msg.role, content = msg.content})
+        end
+        -- Inject context block strictly into the payload of the final message
+        payloadConversation[#payloadConversation].content = processedText .. contextBlock
+        
         local payload = {
             model = config.Model, 
-            messages = conversation,
+            messages = payloadConversation,
             include_reasoning = true
         }
         
@@ -1554,6 +1769,10 @@ local function handleSend()
                 
                 table.insert(conversation, {role = "assistant", content = reply, reasoning = reasoning, timeTaken = timeTaken})
                 addMessageToUI("assistant", reply, reasoning, timeTaken)
+                -- Fire plugin OnAIResponse callbacks
+                for _, cb in ipairs(pluginOnAIResponseCallbacks) do
+                    pcall(cb, reply)
+                end
                 if saveSession then saveSession() end
             else 
                 addMessageToUI("assistant", "⚠️ Error parsing API response.") 
@@ -1626,7 +1845,13 @@ loadSession = function(id)
         conversation = data.conversation or {{role = "system", content = config.SystemPrompt}}
         for i, msg in ipairs(conversation) do
             if msg.role ~= "system" then
-                addMessageToUI(msg.role, msg.content, msg.reasoning, msg.timeTaken)
+                local displayContent = msg.content or ""
+                -- Strip injected system context block from user messages before displaying
+                if msg.role == "user" then
+                    displayContent = displayContent:match("^(.-)%s*%-%-%- %[SYSTEM CONTEXT ENGINE%]") or displayContent
+                    -- Also strip !command prefixes from the display
+                end
+                addMessageToUI(msg.role, displayContent, msg.reasoning, msg.timeTaken)
             end
         end
         
@@ -1673,6 +1898,21 @@ updateSessionList = function()
             loadBtn.Parent = item
             applyHover(loadBtn, Theme.Accent, Theme.AccentHover)
             loadBtn.MouseButton1Click:Connect(function() loadSession(data.id) end)
+            
+            local delBtn = create("TextButton", {
+                Size = UDim2.new(0, 30, 0, 26), Position = UDim2.new(1, -95, 0.5, -13),
+                BackgroundColor3 = Color3.fromRGB(220, 38, 38), Text = "🗑", TextColor3 = Theme.Text,
+                Font = Enum.Font.GothamMedium, TextSize = 12
+            }, {create("UICorner", {CornerRadius = UDim.new(0, 4)})})
+            delBtn.Parent = item
+            applyHover(delBtn, Color3.fromRGB(220, 38, 38), Color3.fromRGB(185, 28, 28))
+            delBtn.MouseButton1Click:Connect(function()
+                pcall(delfile, file)
+                updateSessionList()
+                if currentSessionId == data.id then
+                    SessionTitleBox.Text = "Session (Deleted)"
+                end
+            end)
             
             item.Parent = SessionsScroll
         end)
@@ -1835,12 +2075,12 @@ local function openProperties(instance)
                 Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1, LayoutOrder = layoutOrder
             })
             create("TextLabel", {
-                Size = UDim2.new(0.45, -15), Position = UDim2.new(0, 15, 0, 0),
+                Size = UDim2.new(0.45, -15, 1, 0), Position = UDim2.new(0, 15, 0, 0),
                 BackgroundTransparency = 1, Text = prop, TextColor3 = Theme.TextMuted,
                 Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, Parent = row
             })
             local valBox = create("TextBox", {
-                Size = UDim2.new(0.45, -10), Position = UDim2.new(0.45, 0, 0, 0),
+                Size = UDim2.new(0.55, -25, 1, -4), Position = UDim2.new(0.45, 0, 0, 2),
                 BackgroundColor3 = Theme.Surface, Text = formatValue(val), TextColor3 = Theme.Text,
                 Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, Parent = row,
                 ClearTextOnFocus = false
@@ -1992,3 +2232,296 @@ local function initExplorer()
     for _, s in ipairs(services) do pcall(renderNode, s, 0, ExpScroll) end
 end
 initExplorer()
+
+local function loadLatestSession()
+    local files = {}
+    pcall(function()
+        if listfiles then
+            for _, f in ipairs(listfiles(SESSIONS_DIR)) do
+                if f:match("%.json$") then
+                    table.insert(files, f)
+                end
+            end
+        end
+    end)
+    if #files > 0 then
+        table.sort(files)
+        local latestFile = files[#files]
+        local sessionId = latestFile:match("([^/\\]+)%.json$")
+        if sessionId then
+            loadSession(sessionId)
+            return true
+        end
+    end
+    return false
+end
+
+if not loadLatestSession() then
+    SessionTitleBox.Text = "Session - " .. os.date("%b %d %I:%M%p")
+    CodeInput.Text = "-- Write your Luau code here\nprint('Hello from IDE!')"
+end
+
+-- === PLUGIN SYSTEM ===
+local loadedPlugins = {} -- {name, status, error}
+
+local function createPluginAPI(pluginName)
+    local api = {}
+    api.Name = pluginName
+    
+    -- Code editor access
+    api.GetCode = function() return CodeInput.Text end
+    api.SetCode = function(_, text) CodeInput.Text = tostring(text) end
+    
+    -- Chat & Console messaging
+    api.AddMessage = function(_, text)
+        addMessageToUI("assistant", "**[Plugin: " .. pluginName .. "]** " .. tostring(text))
+    end
+    api.Log = function(_, text)
+        logToConsole("info", "[Plugin:" .. pluginName .. "] " .. tostring(text))
+    end
+    
+    -- Theme access
+    api.GetTheme = function() return Theme end
+    
+    -- Register a custom !command in the chat
+    api.RegisterCommand = function(_, cmdName, fn)
+        pluginCommands[cmdName:lower()] = fn
+    end
+    
+    -- Subscribe to every AI reply (fires with the reply text)
+    api.OnAIResponse = function(_, callback)
+        table.insert(pluginOnAIResponseCallbacks, callback)
+    end
+    
+    -- Subscribe to editor code changes (fires with new code string)
+    api.OnCodeChange = function(_, callback)
+        table.insert(pluginOnCodeChangeCallbacks, callback)
+    end
+    
+    -- Send a message to the AI as the user
+    api.SendToAI = function(_, text)
+        ChatInput.Text = tostring(text)
+        handleSend()
+    end
+    
+    -- Create a dedicated panel tab in the sidebar for this plugin
+    -- Returns a Frame the plugin can populate with its own UI
+    api.CreatePanel = function(_, labelText)
+        local tabBtn = create("TextButton", {
+            Size = UDim2.new(1, -20, 0, 32),
+            BackgroundColor3 = Theme.Surface,
+            Text = labelText or pluginName,
+            TextColor3 = Theme.Text,
+            Font = Enum.Font.GothamMedium,
+            TextSize = 12,
+            AutoButtonColor = false
+        }, {
+            create("UICorner", {CornerRadius = UDim.new(0, 6)})
+        })
+        tabBtn.Parent = PluginsList
+        
+        -- Create a floating panel window parented to ScreenGui
+        local panel = create("Frame", {
+            Name = pluginName .. "Panel",
+            Size = UDim2.new(0, 300, 0, 350),
+            Position = UDim2.new(0.5, -150, 0.5, -175),
+            BackgroundColor3 = Theme.Background,
+            Visible = false,
+            ZIndex = 60
+        }, {
+            create("UICorner", {CornerRadius = UDim.new(0, 10)}),
+            create("UIStroke", {Color = Theme.Border, Thickness = 1})
+        })
+        panel.Parent = ScreenGui
+        
+        local panelTopBar = create("Frame", {
+            Size = UDim2.new(1, 0, 0, 35),
+            BackgroundColor3 = Theme.SurfaceDark
+        }, {
+            create("UICorner", {CornerRadius = UDim.new(0, 10)}),
+            create("Frame", {Size = UDim2.new(1, 0, 0, 10), Position = UDim2.new(0, 0, 1, -10), BackgroundColor3 = Theme.SurfaceDark})
+        })
+        panelTopBar.Parent = panel
+        makeDraggable(panel, panelTopBar)
+        
+        create("TextLabel", {
+            Text = labelText or pluginName,
+            Size = UDim2.new(1, -40, 1, 0),
+            Position = UDim2.new(0, 12, 0, 0),
+            BackgroundTransparency = 1,
+            TextColor3 = Theme.Text,
+            Font = Enum.Font.GothamBold,
+            TextSize = 13,
+            TextXAlignment = Enum.TextXAlignment.Left
+        }).Parent = panelTopBar
+        
+        local closePanel = create("TextButton", {
+            Size = UDim2.new(0, 35, 0, 35), Position = UDim2.new(1, -35, 0, 0),
+            BackgroundTransparency = 1, Text = "X",
+            TextColor3 = Theme.TextMuted, Font = Enum.Font.GothamBold, TextSize = 14
+        })
+        closePanel.Parent = panelTopBar
+        closePanel.MouseButton1Click:Connect(function() panel.Visible = false end)
+        
+        -- Content area for the plugin to fill
+        local content = create("Frame", {
+            Size = UDim2.new(1, 0, 1, -35),
+            Position = UDim2.new(0, 0, 0, 35),
+            BackgroundTransparency = 1
+        })
+        content.Parent = panel
+        
+        tabBtn.MouseButton1Click:Connect(function() panel.Visible = not panel.Visible end)
+        
+        return content, panel
+    end
+    
+    return api
+end
+
+local function refreshPluginsUI()
+    for _, c in ipairs(PluginsList:GetChildren()) do
+        if not c:IsA("UIListLayout") then c:Destroy() end
+    end
+    
+    if #loadedPlugins == 0 then
+        create("TextLabel", {
+            Size = UDim2.new(1, 0, 0, 80),
+            BackgroundTransparency = 1,
+            Text = "No plugins found.\n\nDrop .lua files into:\n" .. PLUGINS_DIR,
+            TextColor3 = Theme.TextMuted,
+            Font = Enum.Font.Gotham,
+            TextSize = 12,
+            TextWrapped = true,
+            TextXAlignment = Enum.TextXAlignment.Center,
+            AutomaticSize = Enum.AutomaticSize.Y,
+            LayoutOrder = 1,
+            Parent = PluginsList
+        })
+        return
+    end
+    
+    for i, plugin in ipairs(loadedPlugins) do
+        local isLoaded = plugin.status == "loaded"
+        local statusColor = isLoaded and Color3.fromRGB(74, 222, 128) or Color3.fromRGB(248, 113, 113)
+        local statusBg = isLoaded and Color3.fromRGB(20, 60, 30) or Color3.fromRGB(60, 20, 20)
+        
+        local row = create("Frame", {
+            Size = UDim2.new(1, 0, 0, 58),
+            BackgroundColor3 = Theme.Surface,
+            LayoutOrder = i
+        }, {
+            create("UICorner", {CornerRadius = UDim.new(0, 6)}),
+            create("UIStroke", {Color = isLoaded and Color3.fromRGB(30, 80, 40) or Color3.fromRGB(80, 30, 30), Thickness = 1}),
+            create("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8)})
+        })
+        
+        -- Status badge
+        local badge = create("Frame", {
+            Size = UDim2.new(0, 42, 0, 18),
+            Position = UDim2.new(1, 0, 0, 0),
+            AnchorPoint = Vector2.new(1, 0),
+            BackgroundColor3 = statusBg
+        }, {
+            create("UICorner", {CornerRadius = UDim.new(0, 4)}),
+            create("TextLabel", {
+                Size = UDim2.new(1, 0, 1, 0),
+                BackgroundTransparency = 1,
+                Text = isLoaded and "OK" or "ERR",
+                TextColor3 = statusColor,
+                Font = Enum.Font.GothamBold,
+                TextSize = 10
+            })
+        })
+        badge.Parent = row
+        
+        create("TextLabel", {
+            Size = UDim2.new(1, -50, 0, 16),
+            Position = UDim2.new(0, 0, 0, 0),
+            BackgroundTransparency = 1,
+            Text = plugin.name .. ".lua",
+            TextColor3 = Theme.Text,
+            Font = Enum.Font.GothamBold,
+            TextSize = 12,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd
+        }).Parent = row
+        
+        local subText = isLoaded
+            and ("cmds: " .. (#plugin.commands > 0 and table.concat(plugin.commands, ", ") or "none"))
+            or ("Error: " .. tostring(plugin.error):sub(1, 70))
+        
+        create("TextLabel", {
+            Size = UDim2.new(1, 0, 0, 26),
+            Position = UDim2.new(0, 0, 0, 19),
+            BackgroundTransparency = 1,
+            Text = subText,
+            TextColor3 = isLoaded and Theme.TextMuted or Color3.fromRGB(248, 113, 113),
+            Font = Enum.Font.Gotham,
+            TextSize = 10,
+            TextWrapped = true,
+            TextXAlignment = Enum.TextXAlignment.Left
+        }).Parent = row
+        
+        row.Parent = PluginsList
+    end
+end
+
+local function loadPlugins()
+    -- Clear all plugin state including event callbacks
+    pluginCommands = {}
+    loadedPlugins = {}
+    pluginOnAIResponseCallbacks = {}
+    pluginOnCodeChangeCallbacks = {}
+    
+    pcall(function()
+        if not listfiles then return end
+        for _, filePath in ipairs(listfiles(PLUGINS_DIR)) do
+            if filePath:match("%.lua$") then
+                local fileName = filePath:match("([^/\\]+)%.lua$") or filePath
+                local pluginInfo = {name = fileName, status = "error", error = "", commands = {}}
+                
+                local ok, result = pcall(function()
+                    local src = readfile(filePath)
+                    local fn, parseErr = loadstring(src)
+                    if not fn then error(parseErr) end
+                    
+                    local api = createPluginAPI(fileName)
+                    -- Wrap RegisterCommand to track which commands this plugin adds
+                    local origReg = api.RegisterCommand
+                    api.RegisterCommand = function(self, cmdName, fn2)
+                        table.insert(pluginInfo.commands, cmdName)
+                        origReg(self, cmdName, fn2)
+                    end
+                    
+                    local pluginFn = fn()
+                    if type(pluginFn) == "function" then
+                        pluginFn(api)
+                    end
+                end)
+                
+                if ok then
+                    pluginInfo.status = "loaded"
+                else
+                    pluginInfo.error = tostring(result)
+                    logToConsole("error", "[Plugin:" .. fileName .. "] " .. tostring(result))
+                end
+                
+                table.insert(loadedPlugins, pluginInfo)
+            end
+        end
+    end)
+    
+    refreshPluginsUI()
+end
+
+ReloadPluginsBtn.MouseButton1Click:Connect(function()
+    ReloadPluginsBtn.Text = "Loading..."
+    task.delay(0.1, function()
+        loadPlugins()
+        ReloadPluginsBtn.Text = "Reload"
+    end)
+end)
+
+-- Load plugins on startup
+loadPlugins()
