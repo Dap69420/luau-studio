@@ -1,3 +1,12 @@
+--[[
+██╗      ██╗   ██╗  █████╗  ██╗   ██╗        ███████╗ ████████╗ ██╗   ██╗ ██████╗  ██╗  ██████╗
+██║      ██║   ██║ ██╔══██╗ ██║   ██║        ██╔════╝ ╚══██╔══╝ ██║   ██║ ██╔══██╗ ██║ ██╔═══██╗
+██║      ██║   ██║ ███████║ ██║   ██║  ████  ███████╗    ██║    ██║   ██║ ██║  ██║ ██║ ██║   ██║
+██║      ██║   ██║ ██╔══██║ ██║   ██║        ╚════██║    ██║    ██║   ██║ ██║  ██║ ██║ ██║   ██║
+███████╗ ╚██████╔╝ ██║  ██║ ╚██████╔╝        ███████║    ██║    ╚██████╔╝ ██████╔╝ ██║ ╚██████╔╝
+╚══════╝  ╚═════╝  ╚═╝  ╚═╝  ╚═════╝         ╚══════╝    ╚═╝     ╚═════╝  ╚═════╝  ╚═╝  ╚═════╝
+]]
+
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
@@ -1259,7 +1268,6 @@ PluginButtonsRow.Parent = EditorTopBar
 
 -- === File Explorer Panel (VS Code style, left sidebar of the editor) ===
 local FILE_EXPLORER_WIDTH = 170
-local MIN_EXPLORER_WIDTH, MAX_EXPLORER_WIDTH = 110, 400
 
 local FileExplorerPanel = create("Frame", {
     Size = UDim2.new(0, FILE_EXPLORER_WIDTH, 1, -35),
@@ -1274,17 +1282,6 @@ local FileExplorerPanel = create("Frame", {
     })
 })
 FileExplorerPanel.Parent = EditorContainer
-
--- Drag strip straddling the explorer's right border, so users can resize its width independently.
-local ExplorerResizeHandle = create("Frame", {
-    Name = "ExplorerResizeHandle",
-    Size = UDim2.new(0, 8, 1, 0),
-    Position = UDim2.new(1, -4, 0, 0),
-    BackgroundTransparency = 1,
-    Active = true,
-    ZIndex = 5
-})
-ExplorerResizeHandle.Parent = FileExplorerPanel
 
 local FileExplorerHeader = create("Frame", {
     Size = UDim2.new(1, 0, 0, 28),
@@ -1379,39 +1376,6 @@ EditorScroll.Parent = EditorContainer
 EditorScroll:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
     GutterScroll.CanvasPosition = Vector2.new(0, EditorScroll.CanvasPosition.Y)
 end)
-
-local function applyExplorerWidth()
-    FileExplorerPanel.Size = UDim2.new(0, FILE_EXPLORER_WIDTH, 1, -35)
-    GutterFrame.Position = UDim2.new(0, FILE_EXPLORER_WIDTH, 0, 35)
-    EditorScroll.Size = UDim2.new(1, -(FILE_EXPLORER_WIDTH + 40), 1, -35)
-    EditorScroll.Position = UDim2.new(0, FILE_EXPLORER_WIDTH + 40, 0, 35)
-end
-
-do
-    local dragging = false
-    local lastX = nil
-    ExplorerResizeHandle.InputBegan:Connect(function(input)
-        if isPointerActionType(input.UserInputType) then
-            dragging = true
-            lastX = input.Position.X
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then dragging = false end
-            end)
-        end
-    end)
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and isPointerInputType(input.UserInputType) then
-            local x = input.Position.X
-            local dx = x - lastX
-            lastX = x
-            FILE_EXPLORER_WIDTH = math.clamp(FILE_EXPLORER_WIDTH + dx, MIN_EXPLORER_WIDTH, MAX_EXPLORER_WIDTH)
-            applyExplorerWidth()
-        end
-    end)
-    UserInputService.InputEnded:Connect(function(input)
-        if isPointerActionType(input.UserInputType) then dragging = false end
-    end)
-end
 
 sessionFiles = {{name = "Main.lua", language = "lua", content = "-- Write your Luau code here\nprint('Hello from IDE!')"}}
 activeFileIndex = 1
@@ -1996,39 +1960,19 @@ local ChatScroll = create("ScrollingFrame", {
 })
 ChatScroll.Parent = ChatArea
 
-local INPUT_FRAME_HEIGHT = 60
-
 local InputFrame = create("Frame", {
-    Size = UDim2.new(1, -20, 0, INPUT_FRAME_HEIGHT), 
-    Position = UDim2.new(0, 10, 1, -(INPUT_FRAME_HEIGHT + 30)), 
-    BackgroundColor3 = Theme.SurfaceDark, 
-    BorderSizePixel = 0,
-    ClipsDescendants = true
+    Size = UDim2.new(1, -20, 0, 35), 
+    Position = UDim2.new(0, 10, 1, -65), 
+    BackgroundColor3 = Theme.Surface, 
+    BorderSizePixel = 0
 }, {
-    create("UICorner", {CornerRadius = UDim.new(0, 8)}),
-    create("UIStroke", {Color = Theme.Border, Thickness = 1})
+    create("UICorner", {CornerRadius = UDim.new(0, 8)})
 })
 InputFrame.Parent = ChatArea
 
--- Scrollable container so long/multi-line prompts stay clipped inside the
--- rounded input box instead of spilling out over the rest of the UI.
-local InputScroll = create("ScrollingFrame", {
-    Size = UDim2.new(1, -40, 1, -10),
-    Position = UDim2.new(0, 10, 0, 5),
-    BackgroundTransparency = 1,
-    BorderSizePixel = 0,
-    ScrollBarThickness = 4,
-    ScrollBarImageColor3 = Theme.Border,
-    CanvasSize = UDim2.new(0, 0, 0, 0),
-    AutomaticCanvasSize = Enum.AutomaticSize.Y,
-    ClipsDescendants = true
-})
-InputScroll.Parent = InputFrame
-
 local ChatInput = create("TextBox", {
-    Size = UDim2.new(1, -6, 0, 0), 
-    Position = UDim2.new(0, 0, 0, 0), 
-    AutomaticSize = Enum.AutomaticSize.Y,
+    Size = UDim2.new(1, -40, 1, 0), 
+    Position = UDim2.new(0, 10, 0, 0), 
     BackgroundTransparency = 1, 
     Text = "", 
     PlaceholderText = "Message AI...", 
@@ -2036,22 +1980,10 @@ local ChatInput = create("TextBox", {
     PlaceholderColor3 = Theme.TextMuted, 
     Font = Enum.Font.Gotham, 
     TextSize = 13, 
-    TextWrapped = true,
-    MultiLine = true,
     TextXAlignment = Enum.TextXAlignment.Left, 
-    TextYAlignment = Enum.TextYAlignment.Top,
     ClearTextOnFocus = false
 })
-ChatInput.Parent = InputScroll
-
--- As the prompt wraps onto new lines, keep the newest line in view instead of
--- letting it render below the visible area of the box.
-local function scrollInputToBottom()
-    task.defer(function()
-        InputScroll.CanvasPosition = Vector2.new(0, math.max(0, InputScroll.AbsoluteCanvasSize.Y - InputScroll.AbsoluteSize.Y))
-    end)
-end
-ChatInput:GetPropertyChangedSignal("Text"):Connect(scrollInputToBottom)
+ChatInput.Parent = InputFrame
 
 local SettingsBar = create("Frame", {
     Size = UDim2.new(1, -20, 0, 20),
@@ -2748,24 +2680,6 @@ ChatInput.FocusLost:Connect(function(enterPressed)
     end 
 end)
 
--- ChatInput is now MultiLine, so plain Enter no longer fires FocusLost(enterPressed).
--- Mirror the common chat-app convention: Enter sends, Shift+Enter inserts a newline.
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if input.KeyCode ~= Enum.KeyCode.Return and input.KeyCode ~= Enum.KeyCode.KeypadEnter then return end
-    if UserInputService:GetFocusedTextBox() ~= ChatInput then return end
-
-    local shiftHeld = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
-    if shiftHeld then return end -- allow the newline
-
-    -- Strip the newline the multi-line TextBox just inserted, then send.
-    task.defer(function()
-        if ChatInput.Text:sub(-1) == "\n" then
-            ChatInput.Text = ChatInput.Text:sub(1, -2)
-        end
-        handleSend()
-    end)
-end)
-
 if config.ApiKey == "" then 
     addMessageToUI("assistant", "Welcome to the IDE! Go to **Settings** and paste your API key to begin.\n\nCommands:\n- `!read Path.To.Script`\n- `!ls Path.To.Instance`") 
 else 
@@ -2856,23 +2770,6 @@ loadSession = function(id)
     end)
 end
 
-local function startFreshSession(titleText)
-    currentSessionId = tostring(os.time())
-    SessionTitleBox.Text = titleText or ("Session - " .. os.date("%b %d %I:%M%p"))
-    sessionFiles = {{name = "Main.lua", language = "lua", content = "-- Write your Luau code here\nprint('Hello from IDE!')"}}
-    activeFileIndex = 1
-    CodeInput.Text = sessionFiles[1].content
-    refreshFileTabsUI()
-    consoleHistory = {}
-    for _, child in ipairs(ConsoleScroll:GetChildren()) do
-        if child:IsA("TextLabel") then child:Destroy() end
-    end
-    conversation = {{role = "system", content = config.SystemPrompt}}
-    for _, child in ipairs(ChatScroll:GetChildren()) do
-        if child:IsA("Frame") and not child:IsA("UIListLayout") and not child:IsA("UIPadding") then child:Destroy() end
-    end
-end
-
 updateSessionList = function()
     for _, child in ipairs(SessionsScroll:GetChildren()) do
         if child:IsA("Frame") then child:Destroy() end
@@ -2922,15 +2819,9 @@ updateSessionList = function()
             applyHover(delBtn, Color3.fromRGB(220, 38, 38), Color3.fromRGB(185, 28, 28))
             delBtn.MouseButton1Click:Connect(function()
                 pcall(delfile, file)
-                local wasActive = currentSessionId == data.id
                 updateSessionList()
-                if wasActive then
-                    -- The session backing the currently open files/chat/console no longer
-                    -- exists on disk, so start a clean session instead of leaving stale
-                    -- files and messages open.
-                    startFreshSession("Session (Deleted)")
-                    addMessageToUI("assistant", "That session was deleted, so a fresh session was started.")
-                    switchTab("Chat")
+                if currentSessionId == data.id then
+                    SessionTitleBox.Text = "Session (Deleted)"
                 end
             end)
             
@@ -2941,7 +2832,20 @@ end
 
 NewSessionBtn.MouseButton1Click:Connect(function()
     if saveSession then saveSession() end
-    startFreshSession()
+    currentSessionId = tostring(os.time())
+    SessionTitleBox.Text = "Session - " .. os.date("%b %d %I:%M%p")
+    sessionFiles = {{name = "Main.lua", language = "lua", content = "-- Write your Luau code here\nprint('Hello from IDE!')"}}
+    activeFileIndex = 1
+    CodeInput.Text = sessionFiles[1].content
+    refreshFileTabsUI()
+    consoleHistory = {}
+    for _, child in ipairs(ConsoleScroll:GetChildren()) do
+        if child:IsA("TextLabel") then child:Destroy() end
+    end
+    conversation = {{role = "system", content = config.SystemPrompt}}
+    for _, child in ipairs(ChatScroll:GetChildren()) do
+        if child:IsA("Frame") and not child:IsA("UIListLayout") and not child:IsA("UIPadding") then child:Destroy() end
+    end
     addMessageToUI("assistant", "New session started! How can I help you today?")
     switchTab("Chat")
 end)
