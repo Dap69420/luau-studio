@@ -1,11 +1,9 @@
---[[
-██╗      ██╗   ██╗  █████╗  ██╗   ██╗        ███████╗ ████████╗ ██╗   ██╗ ██████╗  ██╗  ██████╗
-██║      ██║   ██║ ██╔══██╗ ██║   ██║        ██╔════╝ ╚══██╔══╝ ██║   ██║ ██╔══██╗ ██║ ██╔═══██╗
-██║      ██║   ██║ ███████║ ██║   ██║  ████  ███████╗    ██║    ██║   ██║ ██║  ██║ ██║ ██║   ██║
-██║      ██║   ██║ ██╔══██║ ██║   ██║        ╚════██║    ██║    ██║   ██║ ██║  ██║ ██║ ██║   ██║
-███████╗ ╚██████╔╝ ██║  ██║ ╚██████╔╝        ███████║    ██║    ╚██████╔╝ ██████╔╝ ██║ ╚██████╔╝
-╚══════╝  ╚═════╝  ╚═╝  ╚═╝  ╚═════╝         ╚══════╝    ╚═╝     ╚═════╝  ╚═════╝  ╚═╝  ╚═════╝
-]]
+print("██╗      ██╗   ██╗  █████╗  ██╗   ██╗        ███████╗ ████████╗ ██╗   ██╗ ██████╗  ██╗  ██████╗")
+print("██║      ██║   ██║ ██╔══██╗ ██║   ██║        ██╔════╝ ╚══██╔══╝ ██║   ██║ ██╔══██╗ ██║ ██╔═══██╗")
+print("██║      ██║   ██║ ███████║ ██║   ██║  ████  ███████╗    ██║    ██║   ██║ ██║  ██║ ██║ ██║   ██║")
+print("██║      ██║   ██║ ██╔══██║ ██║   ██║        ╚════██║    ██║    ██║   ██║ ██║  ██║ ██║ ██║   ██║")
+print("███████╗ ╚██████╔╝ ██║  ██║ ╚██████╔╝        ███████║    ██║    ╚██████╔╝ ██████╔╝ ██║ ╚██████╔╝")
+print("╚══════╝  ╚═════╝  ╚═╝  ╚═╝  ╚═════╝         ╚══════╝    ╚═╝     ╚═════╝  ╚═════╝  ╚═╝  ╚═════╝")
 
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
@@ -39,9 +37,9 @@ local CONFIG_FILE = CONFIG_DIR .. "/config.json"
 local SESSIONS_DIR = CONFIG_DIR .. "/sessions"
 local PLUGINS_DIR = CONFIG_DIR .. "/plugins"
 
-local pluginCommands = {} -- populated by plugins via api:RegisterCommand
-local pluginCommandDescriptions = {} -- [cmdName] = description string, populated alongside pluginCommands
-local pluginUnloadCallbacks = {} -- populated by plugins via api:OnUnload, fired right before every Reload
+local pluginCommands = {} 
+local pluginCommandDescriptions = {} 
+local pluginUnloadCallbacks = {} 
 
 local currentSessionId = tostring(os.time())
 local saveSession
@@ -555,9 +553,33 @@ ToggleBtn.MouseButton1Click:Connect(function()
     tween(MainIDEFrame, {Size = UDim2.new(0, 850, 0, 550)}, 0.3) 
 end)
 
+local FileExplorerToggleBtn = create("TextButton", {
+    Size = UDim2.new(0, 30, 0, 30), 
+    Position = UDim2.new(0, 125, 0.5, -15), 
+    BackgroundColor3 = Theme.Surface, 
+    Text = "🗂", 
+    TextColor3 = Theme.Text, 
+    Font = Enum.Font.Gotham, 
+    TextSize = 14
+}, {create("UICorner", {CornerRadius = UDim.new(0, 6)})})
+FileExplorerToggleBtn.Parent = TopBar
+applyHover(FileExplorerToggleBtn, Theme.Surface, Theme.Border)
+
+local SidebarToggleBtn = create("TextButton", {
+    Size = UDim2.new(0, 30, 0, 30), 
+    Position = UDim2.new(0, 165, 0.5, -15), 
+    BackgroundColor3 = Theme.Surface, 
+    Text = "💬", 
+    TextColor3 = Theme.Text, 
+    Font = Enum.Font.Gotham, 
+    TextSize = 14
+}, {create("UICorner", {CornerRadius = UDim.new(0, 6)})})
+SidebarToggleBtn.Parent = TopBar
+applyHover(SidebarToggleBtn, Theme.Surface, Theme.Border)
+
 local ConsoleToggleBtn = create("TextButton", {
     Size = UDim2.new(0, 100, 0, 30), 
-    Position = UDim2.new(0, 170, 0.5, -15), 
+    Position = UDim2.new(0, 205, 0.5, -15), 
     BackgroundColor3 = Theme.Surface, 
     Text = "Toggle Console", 
     TextColor3 = Theme.TextMuted, 
@@ -571,7 +593,7 @@ applyHover(ConsoleToggleBtn, Theme.Surface, Theme.Border)
 
 local PluginsBtn = create("TextButton", {
     Size = UDim2.new(0, 80, 0, 30), 
-    Position = UDim2.new(0, 280, 0.5, -15), 
+    Position = UDim2.new(0, 315, 0.5, -15), 
     BackgroundColor3 = Theme.Surface, 
     Text = "Plugins", 
     TextColor3 = Theme.TextMuted, 
@@ -587,7 +609,7 @@ applyHover(PluginsBtn, Theme.Surface, Theme.Border)
 -- (lists the panel-toggle buttons that plugins register via api:CreatePanel()).
 local PluginUIBtn = create("TextButton", {
     Size = UDim2.new(0, 26, 0, 30), 
-    Position = UDim2.new(0, 366, 0.5, -15), 
+    Position = UDim2.new(0, 401, 0.5, -15), 
     BackgroundColor3 = Theme.Surface, 
     Text = "v", 
     TextColor3 = Theme.TextMuted, 
@@ -1178,39 +1200,30 @@ local SidebarContainer = create("Frame", {
 })
 SidebarContainer.Parent = MiddleContent
 
+local sidebarHidden = false
+
 local function applySplitRatio()
+    if sidebarHidden then
+        EditorContainer.Size = UDim2.new(1, 0, 1, 0)
+        SplitDivider.Visible = false
+        SplitDivider.Active = false
+        SidebarContainer.Visible = false
+        return
+    end
+    SplitDivider.Visible = true
+    SplitDivider.Active = true
+    SidebarContainer.Visible = true
     EditorContainer.Size = UDim2.new(splitRatio, -3, 1, 0)
     SplitDivider.Position = UDim2.new(splitRatio, -3, 0, 0)
     SidebarContainer.Size = UDim2.new(1 - splitRatio, -3, 1, 0)
     SidebarContainer.Position = UDim2.new(splitRatio, 3, 0, 0)
 end
 
-do
-    local dragging = false
-    local lastX = nil
-    SplitDivider.InputBegan:Connect(function(input)
-        if isPointerActionType(input.UserInputType) then
-            dragging = true
-            lastX = input.Position.X
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then dragging = false end
-            end)
-        end
-    end)
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and isPointerInputType(input.UserInputType) then
-            local x = input.Position.X
-            local dx = x - lastX
-            lastX = x
-            local widthPx = math.max(1, MiddleContent.AbsoluteSize.X)
-            splitRatio = math.clamp(splitRatio + dx / widthPx, MIN_SPLIT_RATIO, MAX_SPLIT_RATIO)
-            applySplitRatio()
-        end
-    end)
-    UserInputService.InputEnded:Connect(function(input)
-        if isPointerActionType(input.UserInputType) then dragging = false end
-    end)
-end
+SidebarToggleBtn.MouseButton1Click:Connect(function()
+    sidebarHidden = not sidebarHidden
+    applySplitRatio()
+    tween(SidebarToggleBtn, {BackgroundColor3 = sidebarHidden and Theme.Accent or Theme.Surface}, 0.15)
+end)
 
 -- === CODE EDITOR MODULE ===
 local EditorTopBar = create("Frame", {
@@ -1268,6 +1281,7 @@ PluginButtonsRow.Parent = EditorTopBar
 
 -- === File Explorer Panel (VS Code style, left sidebar of the editor) ===
 local FILE_EXPLORER_WIDTH = 170
+local MIN_EXPLORER_WIDTH, MAX_EXPLORER_WIDTH = 110, 400
 
 local FileExplorerPanel = create("Frame", {
     Size = UDim2.new(0, FILE_EXPLORER_WIDTH, 1, -35),
@@ -1282,6 +1296,17 @@ local FileExplorerPanel = create("Frame", {
     })
 })
 FileExplorerPanel.Parent = EditorContainer
+
+-- Drag strip straddling the explorer's right border, so users can resize its width independently.
+local ExplorerResizeHandle = create("Frame", {
+    Name = "ExplorerResizeHandle",
+    Size = UDim2.new(0, 8, 1, 0),
+    Position = UDim2.new(1, -4, 0, 0),
+    BackgroundTransparency = 1,
+    Active = true,
+    ZIndex = 5
+})
+ExplorerResizeHandle.Parent = FileExplorerPanel
 
 local FileExplorerHeader = create("Frame", {
     Size = UDim2.new(1, 0, 0, 28),
@@ -1376,6 +1401,55 @@ EditorScroll.Parent = EditorContainer
 EditorScroll:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
     GutterScroll.CanvasPosition = Vector2.new(0, EditorScroll.CanvasPosition.Y)
 end)
+
+local explorerHidden = false
+
+local function applyExplorerWidth()
+    if explorerHidden then
+        FileExplorerPanel.Visible = false
+        GutterFrame.Position = UDim2.new(0, 0, 0, 35)
+        EditorScroll.Size = UDim2.new(1, -40, 1, -35)
+        EditorScroll.Position = UDim2.new(0, 40, 0, 35)
+        return
+    end
+    FileExplorerPanel.Visible = true
+    FileExplorerPanel.Size = UDim2.new(0, FILE_EXPLORER_WIDTH, 1, -35)
+    GutterFrame.Position = UDim2.new(0, FILE_EXPLORER_WIDTH, 0, 35)
+    EditorScroll.Size = UDim2.new(1, -(FILE_EXPLORER_WIDTH + 40), 1, -35)
+    EditorScroll.Position = UDim2.new(0, FILE_EXPLORER_WIDTH + 40, 0, 35)
+end
+
+FileExplorerToggleBtn.MouseButton1Click:Connect(function()
+    explorerHidden = not explorerHidden
+    applyExplorerWidth()
+    tween(FileExplorerToggleBtn, {BackgroundColor3 = explorerHidden and Theme.Accent or Theme.Surface}, 0.15)
+end)
+
+do
+    local dragging = false
+    local lastX = nil
+    ExplorerResizeHandle.InputBegan:Connect(function(input)
+        if isPointerActionType(input.UserInputType) then
+            dragging = true
+            lastX = input.Position.X
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and isPointerInputType(input.UserInputType) then
+            local x = input.Position.X
+            local dx = x - lastX
+            lastX = x
+            FILE_EXPLORER_WIDTH = math.clamp(FILE_EXPLORER_WIDTH + dx, MIN_EXPLORER_WIDTH, MAX_EXPLORER_WIDTH)
+            applyExplorerWidth()
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if isPointerActionType(input.UserInputType) then dragging = false end
+    end)
+end
 
 sessionFiles = {{name = "Main.lua", language = "lua", content = "-- Write your Luau code here\nprint('Hello from IDE!')"}}
 activeFileIndex = 1
@@ -1938,8 +2012,17 @@ local SessionsScroll = create("ScrollingFrame", {
 })
 SessionsScroll.Parent = SessionsArea
 
+-- Unified prompt "card" — textarea, divider, and a toolbar (model selector,
+-- settings, send/stop) all inside one rounded panel, similar to the input
+-- box of a typical AI coding assistant extension, instead of separate
+-- floating pieces that visually crowd the message list above them.
+-- (Packed into one table rather than several locals — this file is a single
+-- top-level chunk and Lua caps local variables per chunk at 200.)
+local PromptLayout = {textarea = 54, toolbar = 30, padding = 8, margin = 14, topGap = 12}
+PromptLayout.cardHeight = PromptLayout.padding + PromptLayout.textarea + PromptLayout.toolbar
+
 local ChatScroll = create("ScrollingFrame", {
-    Size = UDim2.new(1, 0, 1, -100), 
+    Size = UDim2.new(1, 0, 1, -(PromptLayout.cardHeight + PromptLayout.margin + PromptLayout.topGap)), 
     Position = UDim2.new(0, 0, 0, 30),
     BackgroundTransparency = 1, 
     ScrollBarThickness = 4, 
@@ -1961,39 +2044,78 @@ local ChatScroll = create("ScrollingFrame", {
 ChatScroll.Parent = ChatArea
 
 local InputFrame = create("Frame", {
-    Size = UDim2.new(1, -20, 0, 35), 
-    Position = UDim2.new(0, 10, 1, -65), 
-    BackgroundColor3 = Theme.Surface, 
-    BorderSizePixel = 0
+    Size = UDim2.new(1, -20, 0, PromptLayout.cardHeight), 
+    Position = UDim2.new(0, 10, 1, -(PromptLayout.cardHeight + PromptLayout.margin)), 
+    BackgroundColor3 = Theme.SurfaceDark, 
+    BorderSizePixel = 0,
+    ClipsDescendants = true
 }, {
-    create("UICorner", {CornerRadius = UDim.new(0, 8)})
+    create("UICorner", {CornerRadius = UDim.new(0, 10)}),
+    create("UIStroke", {Color = Theme.Border, Thickness = 1})
 })
 InputFrame.Parent = ChatArea
 
+-- Scrollable container so long/multi-line prompts stay clipped inside the
+-- rounded input box instead of spilling out over the rest of the UI.
+local InputScroll = create("ScrollingFrame", {
+    Size = UDim2.new(1, -16, 0, PromptLayout.textarea),
+    Position = UDim2.new(0, 8, 0, PromptLayout.padding),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    ScrollBarThickness = 4,
+    ScrollBarImageColor3 = Theme.Border,
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    ClipsDescendants = true
+})
+InputScroll.Parent = InputFrame
+
 local ChatInput = create("TextBox", {
-    Size = UDim2.new(1, -40, 1, 0), 
-    Position = UDim2.new(0, 10, 0, 0), 
+    Size = UDim2.new(1, -6, 0, 0), 
+    Position = UDim2.new(0, 0, 0, 0), 
+    AutomaticSize = Enum.AutomaticSize.Y,
     BackgroundTransparency = 1, 
     Text = "", 
-    PlaceholderText = "Message AI...", 
+    PlaceholderText = "Ask anything, @ to mention...", 
     TextColor3 = Theme.Text, 
     PlaceholderColor3 = Theme.TextMuted, 
     Font = Enum.Font.Gotham, 
     TextSize = 13, 
+    TextWrapped = true,
+    MultiLine = true,
     TextXAlignment = Enum.TextXAlignment.Left, 
+    TextYAlignment = Enum.TextYAlignment.Top,
     ClearTextOnFocus = false
 })
-ChatInput.Parent = InputFrame
+ChatInput.Parent = InputScroll
+
+-- As the prompt wraps onto new lines, keep the newest line in view instead of
+-- letting it render below the visible area of the box.
+local function scrollInputToBottom()
+    task.defer(function()
+        InputScroll.CanvasPosition = Vector2.new(0, math.max(0, InputScroll.AbsoluteCanvasSize.Y - InputScroll.AbsoluteSize.Y))
+    end)
+end
+ChatInput:GetPropertyChangedSignal("Text"):Connect(scrollInputToBottom)
+
+-- Thin divider separating the textarea from the toolbar row below it.
+create("Frame", {
+    Size = UDim2.new(1, -16, 0, 1),
+    Position = UDim2.new(0, 8, 0, PromptLayout.padding + PromptLayout.textarea + 4),
+    BackgroundColor3 = Theme.Border,
+    BackgroundTransparency = 0.4,
+    BorderSizePixel = 0
+}).Parent = InputFrame
 
 local SettingsBar = create("Frame", {
-    Size = UDim2.new(1, -20, 0, 20),
-    Position = UDim2.new(0, 10, 1, -25),
+    Size = UDim2.new(1, -16, 0, PromptLayout.toolbar - 6),
+    Position = UDim2.new(0, 8, 1, -(PromptLayout.toolbar - 2)),
     BackgroundTransparency = 1
 })
-SettingsBar.Parent = ChatArea
+SettingsBar.Parent = InputFrame
 
 local InlineModelBtn = create("TextButton", {
-    Size = UDim2.new(1, -30, 1, 0),
+    Size = UDim2.new(1, -70, 1, 0),
     Position = UDim2.new(0, 0, 0, 0),
     BackgroundTransparency = 1,
     Text = config.Model .. " ▼",
@@ -2006,7 +2128,7 @@ InlineModelBtn.Parent = SettingsBar
 
 local ModelDropdown = create("Frame", {
     Size = UDim2.new(1, -50, 0, 150),
-    Position = UDim2.new(0, 10, 1, -180),
+    Position = UDim2.new(0, 10, 1, -(PromptLayout.cardHeight + PromptLayout.margin + 8 + 150)),
     BackgroundColor3 = Theme.SurfaceDark,
     Visible = false,
     ZIndex = 20
@@ -2087,7 +2209,7 @@ end)
 
 local CogBtn = create("TextButton", {
     Size = UDim2.new(0, 20, 0, 20),
-    Position = UDim2.new(1, -20, 0, 0),
+    Position = UDim2.new(1, -58, 0.5, -10),
     BackgroundColor3 = Theme.Surface,
     Text = "⚙️",
     TextColor3 = Theme.TextMuted,
@@ -2104,22 +2226,22 @@ CogBtn.MouseButton1Click:Connect(function()
 end)
 
 local SendBtn = create("TextButton", {
-    Size = UDim2.new(0, 25, 0, 25), 
-    Position = UDim2.new(1, -30, 0.5, -12.5), 
+    Size = UDim2.new(0, 24, 0, 24), 
+    Position = UDim2.new(1, -24, 0.5, -12), 
     BackgroundColor3 = Theme.Accent, 
-    Text = ">", 
+    Text = "➤", 
     TextColor3 = Theme.Text, 
     Font = Enum.Font.GothamBold, 
-    TextSize = 14
+    TextSize = 13
 }, {
-    create("UICorner", {CornerRadius = UDim.new(0, 4)})
+    create("UICorner", {CornerRadius = UDim.new(0, 6)})
 })
-SendBtn.Parent = InputFrame
+SendBtn.Parent = SettingsBar
 applyHover(SendBtn, Theme.Accent, Theme.AccentHover)
 
 local StopBtn = create("TextButton", {
-    Size = UDim2.new(0, 25, 0, 25), 
-    Position = UDim2.new(1, -30, 0.5, -12.5), 
+    Size = UDim2.new(0, 24, 0, 24), 
+    Position = UDim2.new(1, -24, 0.5, -12), 
     BackgroundColor3 = Color3.fromRGB(248, 113, 113), 
     Text = "X", 
     TextColor3 = Theme.Text, 
@@ -2127,9 +2249,9 @@ local StopBtn = create("TextButton", {
     TextSize = 14,
     Visible = false
 }, {
-    create("UICorner", {CornerRadius = UDim.new(0, 4)})
+    create("UICorner", {CornerRadius = UDim.new(0, 6)})
 })
-StopBtn.Parent = InputFrame
+StopBtn.Parent = SettingsBar
 applyHover(StopBtn, Color3.fromRGB(248, 113, 113), Color3.fromRGB(220, 38, 38))
 
 local currentRequestId = 0
@@ -2680,6 +2802,24 @@ ChatInput.FocusLost:Connect(function(enterPressed)
     end 
 end)
 
+-- ChatInput is now MultiLine, so plain Enter no longer fires FocusLost(enterPressed).
+-- Mirror the common chat-app convention: Enter sends, Shift+Enter inserts a newline.
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if input.KeyCode ~= Enum.KeyCode.Return and input.KeyCode ~= Enum.KeyCode.KeypadEnter then return end
+    if UserInputService:GetFocusedTextBox() ~= ChatInput then return end
+
+    local shiftHeld = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+    if shiftHeld then return end -- allow the newline
+
+    -- Strip the newline the multi-line TextBox just inserted, then send.
+    task.defer(function()
+        if ChatInput.Text:sub(-1) == "\n" then
+            ChatInput.Text = ChatInput.Text:sub(1, -2)
+        end
+        handleSend()
+    end)
+end)
+
 if config.ApiKey == "" then 
     addMessageToUI("assistant", "Welcome to the IDE! Go to **Settings** and paste your API key to begin.\n\nCommands:\n- `!read Path.To.Script`\n- `!ls Path.To.Instance`") 
 else 
@@ -2770,6 +2910,23 @@ loadSession = function(id)
     end)
 end
 
+local function startFreshSession(titleText)
+    currentSessionId = tostring(os.time())
+    SessionTitleBox.Text = titleText or ("Session - " .. os.date("%b %d %I:%M%p"))
+    sessionFiles = {{name = "Main.lua", language = "lua", content = "-- Write your Luau code here\nprint('Hello from IDE!')"}}
+    activeFileIndex = 1
+    CodeInput.Text = sessionFiles[1].content
+    refreshFileTabsUI()
+    consoleHistory = {}
+    for _, child in ipairs(ConsoleScroll:GetChildren()) do
+        if child:IsA("TextLabel") then child:Destroy() end
+    end
+    conversation = {{role = "system", content = config.SystemPrompt}}
+    for _, child in ipairs(ChatScroll:GetChildren()) do
+        if child:IsA("Frame") and not child:IsA("UIListLayout") and not child:IsA("UIPadding") then child:Destroy() end
+    end
+end
+
 updateSessionList = function()
     for _, child in ipairs(SessionsScroll:GetChildren()) do
         if child:IsA("Frame") then child:Destroy() end
@@ -2819,9 +2976,15 @@ updateSessionList = function()
             applyHover(delBtn, Color3.fromRGB(220, 38, 38), Color3.fromRGB(185, 28, 28))
             delBtn.MouseButton1Click:Connect(function()
                 pcall(delfile, file)
+                local wasActive = currentSessionId == data.id
                 updateSessionList()
-                if currentSessionId == data.id then
-                    SessionTitleBox.Text = "Session (Deleted)"
+                if wasActive then
+                    -- The session backing the currently open files/chat/console no longer
+                    -- exists on disk, so start a clean session instead of leaving stale
+                    -- files and messages open.
+                    startFreshSession("Session (Deleted)")
+                    addMessageToUI("assistant", "That session was deleted, so a fresh session was started.")
+                    switchTab("Chat")
                 end
             end)
             
@@ -2832,20 +2995,7 @@ end
 
 NewSessionBtn.MouseButton1Click:Connect(function()
     if saveSession then saveSession() end
-    currentSessionId = tostring(os.time())
-    SessionTitleBox.Text = "Session - " .. os.date("%b %d %I:%M%p")
-    sessionFiles = {{name = "Main.lua", language = "lua", content = "-- Write your Luau code here\nprint('Hello from IDE!')"}}
-    activeFileIndex = 1
-    CodeInput.Text = sessionFiles[1].content
-    refreshFileTabsUI()
-    consoleHistory = {}
-    for _, child in ipairs(ConsoleScroll:GetChildren()) do
-        if child:IsA("TextLabel") then child:Destroy() end
-    end
-    conversation = {{role = "system", content = config.SystemPrompt}}
-    for _, child in ipairs(ChatScroll:GetChildren()) do
-        if child:IsA("Frame") and not child:IsA("UIListLayout") and not child:IsA("UIPadding") then child:Destroy() end
-    end
+    startFreshSession()
     addMessageToUI("assistant", "New session started! How can I help you today?")
     switchTab("Chat")
 end)
