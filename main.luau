@@ -1244,6 +1244,8 @@ refreshFileTabsUI = function()
         })
 
         local openBtn = create("TextButton", {
+            Name = "TabLabel",
+            LayoutOrder = 1,
             Size = UDim2.new(0, 0, 1, 0),
             AutomaticSize = Enum.AutomaticSize.X,
             BackgroundTransparency = 1,
@@ -1256,8 +1258,21 @@ refreshFileTabsUI = function()
         openBtn.MouseButton1Click:Connect(function() openFile(i) end)
 
         if #sessionFiles > 1 then
+            -- Small spacer so the close button never sits flush against the label,
+            -- reducing accidental "close" clicks when aiming for the tab itself.
+            create("Frame", {
+                Name = "TabCloseSpacer",
+                LayoutOrder = 2,
+                Size = UDim2.new(0, 4, 1, 0),
+                BackgroundTransparency = 1
+            }).Parent = tabBtn
+
             local closeBtn = create("TextButton", {
-                Size = UDim2.new(0, 16, 0, 16),
+                Name = "TabCloseButton",
+                LayoutOrder = 3,
+                Size = UDim2.new(0, 18, 0, 18),
+                AnchorPoint = Vector2.new(0, 0.5),
+                Position = UDim2.new(0, 0, 0.5, 0),
                 BackgroundTransparency = 1,
                 Text = "×",
                 TextColor3 = Theme.TextMuted,
@@ -1265,6 +1280,7 @@ refreshFileTabsUI = function()
                 TextSize = 13
             })
             closeBtn.Parent = tabBtn
+            applyHover(closeBtn, Theme.SurfaceDark, Theme.Border)
             closeBtn.MouseButton1Click:Connect(function() deleteFile(i) end)
         end
 
