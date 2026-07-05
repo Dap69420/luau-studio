@@ -1,3 +1,13 @@
+--[[
+    Roblox AI Studio IDE - Upgraded
+    Features:
+    - Smooth UI Animations
+    - Chat Markdown Formatting & Code Syntax Highlighting
+    - Deep AI Context Engine (Console & Editor Awareness)
+    - Full IDE Layout
+    - Game Context Commands (!read, !ls)
+]]
+
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
@@ -31,12 +41,24 @@ local SESSIONS_DIR = CONFIG_DIR .. "/sessions"
 local PLUGINS_DIR = CONFIG_DIR .. "/plugins"
 
 local pluginCommands = {} -- populated by plugins via api:RegisterCommand
+local pluginCommandDescriptions = {} -- [cmdName] = description string, populated alongside pluginCommands
+local pluginUnloadCallbacks = {} -- populated by plugins via api:OnUnload, fired right before every Reload
 
 local currentSessionId = tostring(os.time())
 local saveSession
 local loadSession
 local updateSessionList
 local loadPlugins
+
+-- === Multi-file session state ===
+-- Sessions now hold an ordered list of files (Luau/.lua/.luau, .json, .md) instead of one code blob.
+-- {name = "Main.lua", language = "lua", content = "..."}
+local sessionFiles = {}
+local activeFileIndex = 1
+local openFile        -- (index) -> switch the editor to show this file, saving the current buffer first
+local createFile       -- (name, content?, language?) -> boolean, err
+local deleteFile       -- (index) -> void
+local refreshFileTabsUI -- () -> void, redraws the file tab strip above the editor
 local config = {
     ApiKey = "",
     Model = "openai/gpt-4o-mini",
@@ -75,6 +97,45 @@ local function saveConfig()
     pcall(function() 
         writefile(CONFIG_FILE, HttpService:JSONEncode(config)) 
     end)
+end
+
+-- === Multi-file session helpers ===
+-- Supported file types: Luau (.lua / .luau), JSON (.json), Markdown (.md)
+local function getFileLanguage(name)
+    local ext = tostring(name):match("%.([%w]+)$")
+    ext = ext and ext:lower()
+    if ext == "lua" or ext == "luau" then return "lua"
+    elseif ext == "json" then return "json"
+    elseif ext == "md" then return "markdown"
+    end
+    return "text"
+end
+
+local function defaultContentFor(language)
+    if language == "lua" then
+        return "-- Write your Luau code here\nprint('Hello from IDE!')"
+    elseif language == "json" then
+        return "{\n    \n}"
+    elseif language == "markdown" then
+        return "# New Document\n"
+    end
+    return ""
+end
+
+local function fileIcon(language)
+    if language == "lua" then return "🌙"
+    elseif language == "json" then return "{}"
+    elseif language == "markdown" then return "📝"
+    end
+    return "📄"
+end
+
+local function findFileIndex(name)
+    if not name then return nil end
+    for i, f in ipairs(sessionFiles) do
+        if f.name:lower() == tostring(name):lower() then return i end
+    end
+    return nil
 end
 
 -- Theme & Utils
@@ -438,10 +499,10 @@ local PluginUIBtn = create("TextButton", {
     Size = UDim2.new(0, 26, 0, 30), 
     Position = UDim2.new(0, 366, 0.5, -15), 
     BackgroundColor3 = Theme.Surface, 
-    Text = "▾", 
+    Text = "v", 
     TextColor3 = Theme.TextMuted, 
-    Font = Enum.Font.Gotham, 
-    TextSize = 14
+    Font = Enum.Font.GothamBold, 
+    TextSize = 16
 }, {
     create("UICorner", {CornerRadius = UDim.new(0, 6)})
 })
@@ -774,6 +835,128 @@ PluginsWindow.Parent = ScreenGui
 makeDraggable(PluginsWindow, PluginsTopBar)
 makeResizable(PluginsWindow, Vector2.new(280, 300))
 
+-- === New File modal (multi-file sessions) ===
+local NewFileWindow = create("Frame", {
+    Size = UDim2.new(0, 320, 0, 150),
+    Position = UDim2.new(0.5, -160, 0.5, -75),
+    BackgroundColor3 = Theme.Background,
+    Visible = false,
+    ZIndex = 70
+}, {
+    create("UICorner", {CornerRadius = UDim.new(0, 10)}),
+    create("UIStroke", {Color = Theme.Border, Thickness = 1})
+})
+
+local NewFileTopBar = create("Frame", {
+    Size = UDim2.new(1, 0, 0, 35),
+    BackgroundColor3 = Theme.SurfaceDark,
+    ZIndex = 70
+}, {
+    create("UICorner", {CornerRadius = UDim.new(0, 10)}),
+    create("Frame", {Size = UDim2.new(1, 0, 0, 10), Position = UDim2.new(0, 0, 1, -10), BackgroundColor3 = Theme.SurfaceDark, ZIndex = 70})
+})
+NewFileTopBar.Parent = NewFileWindow
+
+create("TextLabel", {
+    Text = "New File",
+    Size = UDim2.new(1, -40, 1, 0),
+    Position = UDim2.new(0, 12, 0, 0),
+    BackgroundTransparency = 1,
+    TextColor3 = Theme.Text,
+    Font = Enum.Font.GothamBold,
+    TextSize = 14,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 70
+}).Parent = NewFileTopBar
+
+local CloseNewFileBtn = create("TextButton", {
+    Size = UDim2.new(0, 35, 0, 35), Position = UDim2.new(1, -35, 0, 0),
+    BackgroundTransparency = 1, Text = "X",
+    TextColor3 = Theme.TextMuted, Font = Enum.Font.GothamBold, TextSize = 14, ZIndex = 70
+})
+CloseNewFileBtn.Parent = NewFileTopBar
+CloseNewFileBtn.MouseButton1Click:Connect(function() NewFileWindow.Visible = false end)
+makeDraggable(NewFileWindow, NewFileTopBar)
+
+create("TextLabel", {
+    Text = "Filename (with extension)",
+    Size = UDim2.new(1, -20, 0, 16),
+    Position = UDim2.new(0, 10, 0, 43),
+    BackgroundTransparency = 1,
+    TextColor3 = Theme.TextMuted,
+    Font = Enum.Font.Gotham,
+    TextSize = 11,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 70
+}).Parent = NewFileWindow
+
+local NewFileNameBox = create("TextBox", {
+    Size = UDim2.new(1, -20, 0, 32),
+    Position = UDim2.new(0, 10, 0, 61),
+    BackgroundColor3 = Theme.Surface,
+    Text = "",
+    PlaceholderText = "Script.lua, data.json, notes.md...",
+    TextColor3 = Theme.Text,
+    Font = Enum.Font.RobotoMono,
+    TextSize = 13,
+    ClearTextOnFocus = false,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 70
+}, {
+    create("UICorner", {CornerRadius = UDim.new(0, 5)}),
+    create("UIPadding", {PaddingLeft = UDim.new(0, 8)})
+})
+NewFileNameBox.Parent = NewFileWindow
+
+local NewFileStatusLabel = create("TextLabel", {
+    Size = UDim2.new(1, -110, 0, 34),
+    Position = UDim2.new(0, 10, 1, -44),
+    BackgroundTransparency = 1,
+    Text = "Supported: .lua .luau .json .md",
+    TextColor3 = Theme.TextMuted,
+    Font = Enum.Font.Gotham,
+    TextSize = 10,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextWrapped = true,
+    ZIndex = 70
+})
+NewFileStatusLabel.Parent = NewFileWindow
+
+local CreateFileBtn = create("TextButton", {
+    Size = UDim2.new(0, 90, 0, 30),
+    Position = UDim2.new(1, -100, 1, -40),
+    BackgroundColor3 = Theme.Accent,
+    Text = "Create",
+    TextColor3 = Theme.Text,
+    Font = Enum.Font.GothamMedium,
+    TextSize = 12,
+    ZIndex = 70
+}, {create("UICorner", {CornerRadius = UDim.new(0, 6)})})
+CreateFileBtn.Parent = NewFileWindow
+applyHover(CreateFileBtn, Theme.Accent, Theme.AccentHover)
+
+NewFileWindow.Parent = ScreenGui
+
+CreateFileBtn.MouseButton1Click:Connect(function()
+    local ok, err = createFile(NewFileNameBox.Text)
+    if ok then
+        NewFileWindow.Visible = false
+    else
+        NewFileStatusLabel.Text = err or "Could not create that file."
+    end
+end)
+
+NewFileNameBox.FocusLost:Connect(function(enterPressed)
+    if enterPressed then
+        local ok, err = createFile(NewFileNameBox.Text)
+        if ok then
+            NewFileWindow.Visible = false
+        else
+            NewFileStatusLabel.Text = err or "Could not create that file."
+        end
+    end
+end)
+
 -- Layout Structures
 local MiddleContent = create("Frame", {
     Size = UDim2.new(1, 0, 1, -40), 
@@ -878,10 +1061,64 @@ local ClearCodeBtn = create("TextButton", {
 ClearCodeBtn.Parent = EditorTopBar
 applyHover(ClearCodeBtn, Theme.SurfaceDark, Theme.Border)
 
+-- Row for buttons plugins add via api:AddButton (right-aligned, grows leftward)
+local PluginButtonsRow = create("Frame", {
+    Size = UDim2.new(0, 0, 0, 25),
+    Position = UDim2.new(1, -10, 0.5, -12.5),
+    AnchorPoint = Vector2.new(1, 0),
+    AutomaticSize = Enum.AutomaticSize.X,
+    BackgroundTransparency = 1
+}, {
+    create("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6)})
+})
+PluginButtonsRow.Parent = EditorTopBar
+
+-- === File Tabs Bar (multi-file sessions, VS Code style) ===
+local FileTabsBar = create("Frame", {
+    Size = UDim2.new(1, 0, 0, 30),
+    Position = UDim2.new(0, 0, 0, 35),
+    BackgroundColor3 = Theme.SurfaceDark,
+    BorderSizePixel = 0
+}, {
+    create("Frame", {Size = UDim2.new(1, 0, 0, 1), Position = UDim2.new(0, 0, 1, -1), BackgroundColor3 = Theme.Border})
+})
+FileTabsBar.Parent = EditorContainer
+
+local FileTabsScroll = create("ScrollingFrame", {
+    Size = UDim2.new(1, -32, 1, 0),
+    BackgroundTransparency = 1,
+    ScrollingDirection = Enum.ScrollingDirection.X,
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    AutomaticCanvasSize = Enum.AutomaticSize.X,
+    ScrollBarThickness = 3,
+    ScrollBarImageColor3 = Theme.Border
+}, {
+    create("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 2)})
+})
+FileTabsScroll.Parent = FileTabsBar
+
+local NewFileBtn = create("TextButton", {
+    Size = UDim2.new(0, 30, 1, 0),
+    Position = UDim2.new(1, -30, 0, 0),
+    BackgroundTransparency = 1,
+    Text = "+",
+    TextColor3 = Theme.TextMuted,
+    Font = Enum.Font.GothamBold,
+    TextSize = 16
+})
+NewFileBtn.Parent = FileTabsBar
+applyHover(NewFileBtn, Theme.SurfaceDark, Theme.Surface)
+NewFileBtn.MouseButton1Click:Connect(function()
+    NewFileNameBox.Text = ""
+    NewFileStatusLabel.Text = "Supported: .lua .luau .json .md"
+    NewFileWindow.Visible = true
+    NewFileNameBox:CaptureFocus()
+end)
+
 -- Gutter (line numbers)
 local GutterFrame = create("Frame", {
-    Size = UDim2.new(0, 40, 1, -35),
-    Position = UDim2.new(0, 0, 0, 35),
+    Size = UDim2.new(0, 40, 1, -65),
+    Position = UDim2.new(0, 0, 0, 65),
     BackgroundColor3 = Theme.SurfaceDark,
     BorderSizePixel = 0,
     ZIndex = 2,
@@ -903,8 +1140,8 @@ local GutterScroll = create("ScrollingFrame", {
 GutterScroll.Parent = GutterFrame
 
 local EditorScroll = create("ScrollingFrame", {
-    Size = UDim2.new(1, -40, 1, -35), 
-    Position = UDim2.new(0, 40, 0, 35), 
+    Size = UDim2.new(1, -40, 1, -65), 
+    Position = UDim2.new(0, 40, 0, 65), 
     BackgroundTransparency = 1, 
     CanvasSize = UDim2.new(0, 0, 0, 0), 
     AutomaticCanvasSize = Enum.AutomaticSize.Y, 
@@ -918,6 +1155,9 @@ EditorScroll:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
     GutterScroll.CanvasPosition = Vector2.new(0, EditorScroll.CanvasPosition.Y)
 end)
 
+sessionFiles = {{name = "Main.lua", language = "lua", content = "-- Write your Luau code here\nprint('Hello from IDE!')"}}
+activeFileIndex = 1
+
 local CodeInput = create("TextBox", {
     Size = UDim2.new(1, -10, 0, 0), 
     Position = UDim2.new(0, 10, 0, 10), 
@@ -930,7 +1170,7 @@ local CodeInput = create("TextBox", {
     TextSize = 14, 
     TextColor3 = Theme.Text,
     ClearTextOnFocus = false, 
-    Text = "-- Write your Luau code here\nprint('Hello from IDE!')", 
+    Text = sessionFiles[1].content, 
     PlaceholderText = "Enter Luau code...",
     ZIndex = 1
 })
@@ -940,6 +1180,12 @@ local pluginOnAIResponseCallbacks = {}
 local pluginOnCodeChangeCallbacks = {}
 
 local function updateLineNumbers(text)
+    -- Keep the in-memory file model in sync with every keystroke so nothing is lost
+    -- even if the session isn't explicitly saved before a crash/reload.
+    if sessionFiles[activeFileIndex] then
+        sessionFiles[activeFileIndex].content = text
+    end
+
     local lineCount = 1
     for _ in text:gmatch("\n") do lineCount = lineCount + 1 end
     -- Always clear and rebuild to avoid race-condition duplicates
@@ -973,6 +1219,111 @@ end)
 ClearCodeBtn.MouseButton1Click:Connect(function() 
     CodeInput.Text = "" 
 end)
+
+-- === File Tab implementations ===
+refreshFileTabsUI = function()
+    for _, c in ipairs(FileTabsScroll:GetChildren()) do
+        if not c:IsA("UIListLayout") then c:Destroy() end
+    end
+
+    for i, f in ipairs(sessionFiles) do
+        local isActive = (i == activeFileIndex)
+        local tabBtn = create("Frame", {
+            Size = UDim2.new(0, 0, 1, 0),
+            AutomaticSize = Enum.AutomaticSize.X,
+            BackgroundColor3 = isActive and Theme.Background or Theme.SurfaceDark,
+            LayoutOrder = i
+        }, {
+            create("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 6)}),
+            create("UIListLayout", {
+                FillDirection = Enum.FillDirection.Horizontal,
+                SortOrder = Enum.SortOrder.LayoutOrder,
+                VerticalAlignment = Enum.VerticalAlignment.Center,
+                Padding = UDim.new(0, 6)
+            })
+        })
+
+        local openBtn = create("TextButton", {
+            Size = UDim2.new(0, 0, 1, 0),
+            AutomaticSize = Enum.AutomaticSize.X,
+            BackgroundTransparency = 1,
+            Text = fileIcon(f.language) .. "  " .. f.name,
+            TextColor3 = isActive and Theme.Text or Theme.TextMuted,
+            Font = isActive and Enum.Font.GothamMedium or Enum.Font.Gotham,
+            TextSize = 12
+        })
+        openBtn.Parent = tabBtn
+        openBtn.MouseButton1Click:Connect(function() openFile(i) end)
+
+        if #sessionFiles > 1 then
+            local closeBtn = create("TextButton", {
+                Size = UDim2.new(0, 16, 0, 16),
+                BackgroundTransparency = 1,
+                Text = "×",
+                TextColor3 = Theme.TextMuted,
+                Font = Enum.Font.GothamBold,
+                TextSize = 13
+            })
+            closeBtn.Parent = tabBtn
+            closeBtn.MouseButton1Click:Connect(function() deleteFile(i) end)
+        end
+
+        if isActive then
+            create("Frame", {
+                Size = UDim2.new(1, 0, 0, 2), Position = UDim2.new(0, 0, 1, -2),
+                BackgroundColor3 = Theme.Accent
+            }).Parent = tabBtn
+        end
+
+        tabBtn.Parent = FileTabsScroll
+    end
+end
+
+openFile = function(index)
+    if not sessionFiles[index] then return end
+    if sessionFiles[activeFileIndex] then
+        sessionFiles[activeFileIndex].content = CodeInput.Text
+    end
+    activeFileIndex = index
+    CodeInput.Text = sessionFiles[index].content or ""
+    refreshFileTabsUI()
+end
+
+createFile = function(name, content, language)
+    name = tostring(name or ""):match("^%s*(.-)%s*$")
+    if name == "" then return false, "Enter a filename first." end
+    if not name:match("%.[%w]+$") then name = name .. ".lua" end
+    if not (name:match("%.lua$") or name:match("%.luau$") or name:match("%.json$") or name:match("%.md$")) then
+        return false, "Only .lua, .luau, .json, and .md files are supported."
+    end
+    if findFileIndex(name) then
+        return false, "A file named " .. name .. " already exists."
+    end
+
+    if sessionFiles[activeFileIndex] then
+        sessionFiles[activeFileIndex].content = CodeInput.Text
+    end
+
+    language = language or getFileLanguage(name)
+    table.insert(sessionFiles, {name = name, language = language, content = content or defaultContentFor(language)})
+    openFile(#sessionFiles)
+    return true
+end
+
+deleteFile = function(index)
+    if #sessionFiles <= 1 or not sessionFiles[index] then return end
+    local wasActive = (index == activeFileIndex)
+    table.remove(sessionFiles, index)
+    if wasActive then
+        activeFileIndex = math.min(index, #sessionFiles)
+        CodeInput.Text = sessionFiles[activeFileIndex].content or ""
+    elseif activeFileIndex > index then
+        activeFileIndex = activeFileIndex - 1
+    end
+    refreshFileTabsUI()
+end
+
+refreshFileTabsUI()
 
 -- === CONSOLE MODULE ===
 local ConsoleScroll = create("ScrollingFrame", {
@@ -1070,6 +1421,11 @@ end
 
 ExecuteBtn.MouseButton1Click:Connect(function()
     if saveSession then saveSession() end
+    local activeFile = sessionFiles[activeFileIndex]
+    if activeFile and activeFile.language ~= "lua" then
+        logToConsole("error", "Cannot execute a ." .. (activeFile.name:match("%.([%w]+)$") or "") .. " file — switch to a .lua/.luau tab to run code.")
+        return
+    end
     executeCode(CodeInput.Text)
 end)
 
@@ -1602,16 +1958,22 @@ end
 
 local function processCommands(text)
     local context = ""
-    
-    for path in text:gmatch("!decompile%s+(%S+)") do
-        local inst = resolvePath(path)
-        if inst and inst:IsA("LuaSourceContainer") then
-            context = context .. string.format("\n\n[Context - Source of %s]:\n```lua\n%s\n```", path, decompile(inst))
+
+    -- !decompile is now handled entirely locally (see tryHandleLocalCommand) — it creates
+    -- a file copy in the session instead of injecting source into the AI context.
+
+    -- Reference a file already in this session's file tabs as AI context
+    for path in text:gmatch("!file%s+(%S+)") do
+        local idx = findFileIndex(path)
+        if idx then
+            local f = sessionFiles[idx]
+            local fenceLang = f.language == "lua" and "lua" or (f.language == "json" and "json" or "")
+            context = context .. string.format("\n\n[Context - File %s]:\n```%s\n%s\n```", f.name, fenceLang, f.content)
         else
-            context = context .. string.format("\n\n[Context]: Failed to decompile %s", path)
+            context = context .. string.format("\n\n[Context]: File not found in this session: %s", path)
         end
     end
-    
+
     for path in text:gmatch("!ls%s+(%S+)") do
         local inst = resolvePath(path)
         if inst then
@@ -1640,16 +2002,9 @@ local function processCommands(text)
         end
     end
     
-    -- Plugin commands: if the message starts with a known !command, call it and return early
-    local firstToken = text:match("^(%S+)")
-    if firstToken and pluginCommands[firstToken:lower()] then
-        local args = text:sub(#firstToken + 2)
-        local ok, err = pcall(pluginCommands[firstToken:lower()], args)
-        if not ok then
-            context = context .. "\n\n[Plugin Error]: " .. tostring(err)
-        end
-    end
-    
+    -- Plugin commands now short-circuit in tryHandleLocalCommand (below), before this
+    -- function is even reached, so they no longer send a request to the AI.
+
     return text .. context
 end
 
@@ -1867,6 +2222,68 @@ local function addMessageToUI(role, text, reasoning, timeTaken)
     end)
 end
 
+-- Local commands that are fully handled in the IDE and never reach the AI.
+-- Returns true if `rawText` was consumed (so handleSend should stop here).
+local function tryHandleLocalCommand(rawText)
+    local firstToken = rawText:match("^(%S+)")
+    if not firstToken then return false end
+    local lower = firstToken:lower()
+
+    if lower == "!decompile" then
+        local path = rawText:match("^!decompile%s+(%S+)")
+        addMessageToUI("user", rawText)
+        if not path then
+            addMessageToUI("assistant", "Usage: `!decompile Path.To.Script` — decompiles a script and adds it as a new file tab (it is **not** sent to the AI).")
+            return true
+        end
+        local inst = resolvePath(path)
+        if not (inst and inst:IsA("LuaSourceContainer")) then
+            addMessageToUI("assistant", "⚠️ Could not decompile `" .. path .. "` — not found, or not a script.")
+            return true
+        end
+        local ok, src = pcall(decompile, inst)
+        if not ok then
+            addMessageToUI("assistant", "⚠️ Decompile failed: " .. tostring(src))
+            return true
+        end
+        local baseName = (inst.Name:gsub("[^%w_]", "_")) .. ".lua"
+        local finalName, n = baseName, 1
+        while findFileIndex(finalName) do
+            n = n + 1
+            finalName = (inst.Name:gsub("[^%w_]", "_")) .. "_" .. n .. ".lua"
+        end
+        local createOk, createErr = createFile(finalName, src, "lua")
+        if createOk then
+            addMessageToUI("assistant", "✅ Decompiled **" .. path .. "** into a new file tab: `" .. finalName .. "`.\nUse `!file " .. finalName .. "` in chat to send it to the AI as context.")
+        else
+            addMessageToUI("assistant", "⚠️ Decompiled successfully but couldn't create the file: " .. tostring(createErr))
+        end
+        return true
+    end
+
+    if lower == "!files" then
+        addMessageToUI("user", rawText)
+        local lines = {}
+        for i, f in ipairs(sessionFiles) do
+            table.insert(lines, string.format("- `%s` (%s)%s", f.name, f.language, i == activeFileIndex and " — *open*" or ""))
+        end
+        addMessageToUI("assistant", "**Files in this session:**\n" .. table.concat(lines, "\n"))
+        return true
+    end
+
+    if pluginCommands[lower] then
+        addMessageToUI("user", rawText)
+        local args = rawText:sub(#firstToken + 2)
+        local ok, err = pcall(pluginCommands[lower], args)
+        if not ok then
+            addMessageToUI("assistant", "⚠️ Plugin command error: " .. tostring(err))
+        end
+        return true
+    end
+
+    return false
+end
+
 local isLoading = false
 
 local function handleSend()
@@ -1874,6 +2291,13 @@ local function handleSend()
     
     local rawText = ChatInput.Text
     if rawText:gsub("%s", "") == "" then return end
+
+    -- !decompile, !files, and plugin !commands are fully local — they never touch the AI.
+    if tryHandleLocalCommand(rawText) then
+        ChatInput.Text = ""
+        if saveSession then saveSession() end
+        return
+    end
     
     if config.ApiKey == "" then 
         addMessageToUI("assistant", "⚠️ **API Key Missing!** Please go to Settings and enter your OpenRouter API key.")
@@ -2041,10 +2465,15 @@ end
 
 saveSession = function()
     pcall(function()
+        -- Flush the active buffer into sessionFiles before writing to disk
+        if sessionFiles[activeFileIndex] then
+            sessionFiles[activeFileIndex].content = CodeInput.Text
+        end
         local data = {
             id = currentSessionId,
             name = SessionTitleBox.Text,
-            code = CodeInput.Text,
+            files = sessionFiles,
+            activeFile = sessionFiles[activeFileIndex] and sessionFiles[activeFileIndex].name or nil,
             conversation = conversation,
             consoleHistory = consoleHistory
         }
@@ -2059,8 +2488,25 @@ loadSession = function(id)
         
         local data = HttpService:JSONDecode(readfile(path))
         currentSessionId = data.id
-        CodeInput.Text = data.code or ""
         SessionTitleBox.Text = data.name or ("Session - " .. os.date("%b %d %I:%M%p"))
+
+        -- Multi-file sessions store `files`; migrate legacy single-file sessions that only have `code`.
+        if data.files and #data.files > 0 then
+            sessionFiles = data.files
+            for _, f in ipairs(sessionFiles) do
+                f.language = f.language or getFileLanguage(f.name)
+            end
+        else
+            sessionFiles = {{name = "Main.lua", language = "lua", content = data.code or ""}}
+        end
+
+        activeFileIndex = 1
+        if data.activeFile then
+            local idx = findFileIndex(data.activeFile)
+            if idx then activeFileIndex = idx end
+        end
+        CodeInput.Text = sessionFiles[activeFileIndex].content or ""
+        refreshFileTabsUI()
         
         for _, child in ipairs(ConsoleScroll:GetChildren()) do
             if child:IsA("TextLabel") then child:Destroy() end
@@ -2165,7 +2611,10 @@ NewSessionBtn.MouseButton1Click:Connect(function()
     if saveSession then saveSession() end
     currentSessionId = tostring(os.time())
     SessionTitleBox.Text = "Session - " .. os.date("%b %d %I:%M%p")
-    CodeInput.Text = "-- Write your Luau code here\nprint('Hello from IDE!')"
+    sessionFiles = {{name = "Main.lua", language = "lua", content = "-- Write your Luau code here\nprint('Hello from IDE!')"}}
+    activeFileIndex = 1
+    CodeInput.Text = sessionFiles[1].content
+    refreshFileTabsUI()
     consoleHistory = {}
     for _, child in ipairs(ConsoleScroll:GetChildren()) do
         if child:IsA("TextLabel") then child:Destroy() end
@@ -2523,24 +2972,148 @@ local function createPluginAPI(pluginName)
     local api = {}
     api.Name = pluginName
     
-    -- Code editor access
+    -- Code editor access (operates on the currently active file tab)
     api.GetCode = function() return CodeInput.Text end
     api.SetCode = function(_, text) CodeInput.Text = tostring(text) end
-    
-    -- Chat & Console messaging
+
+    -- Selection & cursor access, so plugins don't have to replace the whole buffer
+    api.GetSelection = function(_)
+        local text = CodeInput.Text
+        local cursor = CodeInput.CursorPosition
+        local selStart = CodeInput.SelectionStart
+        if cursor == -1 then cursor = #text + 1 end
+        local a = (selStart == -1) and cursor or selStart
+        local b = cursor
+        if a > b then a, b = b, a end
+        local line = 1
+        for _ in text:sub(1, math.max(a - 1, 0)):gmatch("\n") do line = line + 1 end
+        return {startPos = a, endPos = b, text = text:sub(a, b - 1), line = line}
+    end
+    api.InsertText = function(_, text)
+        local current = CodeInput.Text
+        local cursor = CodeInput.CursorPosition
+        if cursor == -1 then
+            CodeInput.Text = current .. tostring(text)
+        else
+            CodeInput.Text = current:sub(1, cursor - 1) .. tostring(text) .. current:sub(cursor)
+        end
+    end
+
+    -- Multi-file session access
+    api.GetFiles = function(_)
+        local out = {}
+        for _, f in ipairs(sessionFiles) do
+            table.insert(out, {name = f.name, language = f.language, content = f.content})
+        end
+        return out
+    end
+    api.GetActiveFile = function(_)
+        return sessionFiles[activeFileIndex] and sessionFiles[activeFileIndex].name or nil
+    end
+    api.OpenFile = function(_, name)
+        local idx = findFileIndex(name)
+        if not idx then return false end
+        openFile(idx)
+        return true
+    end
+    api.CreateFile = function(_, name, content, language)
+        return createFile(name, content, language)
+    end
+    api.GetFile = function(_, name)
+        local idx = findFileIndex(name)
+        if not idx then return nil end
+        if idx == activeFileIndex then return CodeInput.Text end
+        return sessionFiles[idx].content
+    end
+    api.SetFile = function(_, name, content)
+        local idx = findFileIndex(name)
+        if not idx then return false end
+        if idx == activeFileIndex then
+            CodeInput.Text = tostring(content)
+        else
+            sessionFiles[idx].content = tostring(content)
+        end
+        return true
+    end
+
+    -- Persistent per-plugin key/value storage (survives Reload and restarts)
+    api.GetStorage = function(_, key, default)
+        local meta = config.PluginMeta[pluginName]
+        if meta and meta.Storage and meta.Storage[key] ~= nil then
+            return meta.Storage[key]
+        end
+        return default
+    end
+    api.SetStorage = function(_, key, value)
+        config.PluginMeta[pluginName] = config.PluginMeta[pluginName] or {}
+        config.PluginMeta[pluginName].Storage = config.PluginMeta[pluginName].Storage or {}
+        config.PluginMeta[pluginName].Storage[key] = value
+        saveConfig()
+    end
+
+    -- Chat, console & system messaging
     api.AddMessage = function(_, text)
         addMessageToUI("assistant", "**[Plugin: " .. pluginName .. "]** " .. tostring(text))
     end
     api.Log = function(_, text)
         logToConsole("info", "[Plugin:" .. pluginName .. "] " .. tostring(text))
     end
-    
+    api.Notify = function(_, title, text, duration)
+        pcall(function()
+            game.StarterGui:SetCore("SendNotification", {
+                Title = tostring(title or pluginName),
+                Text = tostring(text or ""),
+                Duration = duration or 5
+            })
+        end)
+    end
+
+    -- Read-only chat history (excludes the system prompt)
+    api.GetChatHistory = function(_)
+        local copy = {}
+        for _, msg in ipairs(conversation) do
+            if msg.role ~= "system" then
+                table.insert(copy, {role = msg.role, content = msg.content})
+            end
+        end
+        return copy
+    end
+
+    -- Session metadata
+    api.GetSessionInfo = function(_)
+        local files = {}
+        for _, f in ipairs(sessionFiles) do
+            table.insert(files, {name = f.name, language = f.language})
+        end
+        return {
+            id = currentSessionId,
+            title = SessionTitleBox.Text,
+            files = files,
+            activeFile = sessionFiles[activeFileIndex] and sessionFiles[activeFileIndex].name or nil
+        }
+    end
+
+    -- Game/instance helpers shared with the built-in !ls/!decompile commands
+    api.ResolvePath = function(_, pathStr) return resolvePath(pathStr) end
+    api.Decompile = function(_, inst)
+        local ok, src = pcall(decompile, inst)
+        return ok and src or nil
+    end
+
     -- Theme access
     api.GetTheme = function() return Theme end
     
-    -- Register a custom !command in the chat
-    api.RegisterCommand = function(_, cmdName, fn)
+    -- Register a custom !command in the chat. `description` is optional and shows up
+    -- next to the command name in the Plugins list.
+    api.RegisterCommand = function(_, cmdName, fn, description)
         pluginCommands[cmdName:lower()] = fn
+        pluginCommandDescriptions[cmdName:lower()] = description
+    end
+
+    -- Fires once, right before this Reload's state is torn down, so plugins can
+    -- disconnect connections or cancel spawned loops.
+    api.OnUnload = function(_, callback)
+        table.insert(pluginUnloadCallbacks, callback)
     end
     
     -- Subscribe to every AI reply (fires with the reply text)
@@ -2548,7 +3121,7 @@ local function createPluginAPI(pluginName)
         table.insert(pluginOnAIResponseCallbacks, callback)
     end
     
-    -- Subscribe to editor code changes (fires with new code string)
+    -- Subscribe to editor code changes (fires with new code string, of the active file)
     api.OnCodeChange = function(_, callback)
         table.insert(pluginOnCodeChangeCallbacks, callback)
     end
@@ -2557,6 +3130,22 @@ local function createPluginAPI(pluginName)
     api.SendToAI = function(_, text)
         ChatInput.Text = tostring(text)
         handleSend()
+    end
+
+    -- Add a small button to the editor's top bar (top-right, next to Execute/Clear)
+    api.AddButton = function(_, label, callback)
+        local btn = create("TextButton", {
+            Size = UDim2.new(0, math.max(50, #tostring(label) * 7 + 20), 1, 0),
+            BackgroundColor3 = Theme.SurfaceDark,
+            Text = tostring(label),
+            TextColor3 = Theme.Text,
+            Font = Enum.Font.GothamMedium,
+            TextSize = 12
+        }, {create("UICorner", {CornerRadius = UDim.new(0, 4)})})
+        btn.Parent = PluginButtonsRow
+        applyHover(btn, Theme.SurfaceDark, Theme.Border)
+        btn.MouseButton1Click:Connect(function() pcall(callback) end)
+        return btn
     end
     
     -- Create a dedicated floating panel window for this plugin.
@@ -2724,8 +3313,13 @@ local function refreshPluginsUI()
         })
         renameBox.Parent = row
         
+        local cmdParts = {}
+        for _, cmdName in ipairs(plugin.commands) do
+            local desc = pluginCommandDescriptions[cmdName:lower()]
+            table.insert(cmdParts, desc and (cmdName .. " (" .. desc .. ")") or cmdName)
+        end
         local subText = status == "loaded"
-            and ("cmds: " .. (#plugin.commands > 0 and table.concat(plugin.commands, ", ") or "none"))
+            and ("cmds: " .. (#cmdParts > 0 and table.concat(cmdParts, ", ") or "none"))
             or status == "disabled"
             and "Disabled — click Enable to load it."
             or ("Error: " .. tostring(plugin.error):sub(1, 70))
@@ -2847,8 +3441,13 @@ function refreshPluginTabsDropdown()
 end
 
 loadPlugins = function()
+    -- Give plugins a chance to clean up (disconnect events, cancel loops) before teardown
+    for _, cb in ipairs(pluginUnloadCallbacks) do pcall(cb) end
+
     -- Clear all plugin state including event callbacks
     pluginCommands = {}
+    pluginCommandDescriptions = {}
+    pluginUnloadCallbacks = {}
     loadedPlugins = {}
     pluginOnAIResponseCallbacks = {}
     pluginOnCodeChangeCallbacks = {}
@@ -2861,6 +3460,10 @@ loadPlugins = function()
     -- Remove floating panels created by CreatePanel on any previous load
     for _, c in ipairs(ScreenGui:GetChildren()) do
         if c:GetAttribute("PluginPanel") then c:Destroy() end
+    end
+    -- Remove toolbar buttons added via api:AddButton on any previous load
+    for _, c in ipairs(PluginButtonsRow:GetChildren()) do
+        if not c:IsA("UIListLayout") then c:Destroy() end
     end
     
     pcall(function()
@@ -2881,9 +3484,9 @@ loadPlugins = function()
                         local api = createPluginAPI(fileName)
                         -- Wrap RegisterCommand to track which commands this plugin adds
                         local origReg = api.RegisterCommand
-                        api.RegisterCommand = function(self, cmdName, fn2)
+                        api.RegisterCommand = function(self, cmdName, fn2, desc2)
                             table.insert(pluginInfo.commands, cmdName)
-                            origReg(self, cmdName, fn2)
+                            origReg(self, cmdName, fn2, desc2)
                         end
                         
                         local pluginFn = fn()
