@@ -327,10 +327,6 @@ local MainIDEFrame = create("Frame", {
 MainIDEFrame.Parent = ScreenGui
 makeResizable(MainIDEFrame, Vector2.new(600, 400))
 
--- Parent PluginsWindow to ScreenGui so it can be dragged outside the main frame
-PluginsWindow.Parent = ScreenGui
-makeDraggable(PluginsWindow, PluginsTopBar)
-makeResizable(PluginsWindow, Vector2.new(280, 300))
 
 -- Top Bar
 local TopBar = create("Frame", {
@@ -521,6 +517,11 @@ PluginsList.Parent = PluginsWindow
 PluginsBtn.MouseButton1Click:Connect(function()
     PluginsWindow.Visible = not PluginsWindow.Visible
 end)
+
+-- Parent to ScreenGui so the window can be dragged freely outside the main IDE
+PluginsWindow.Parent = ScreenGui
+makeDraggable(PluginsWindow, PluginsTopBar)
+makeResizable(PluginsWindow, Vector2.new(280, 300))
 
 -- Layout Structures
 local MiddleContent = create("Frame", {
