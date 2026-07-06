@@ -333,6 +333,14 @@ function ThemeUtil.Apply(newPalette)
     for _, key in ipairs(ThemeData.Keys) do
         if newPalette[key] then Theme[key] = newPalette[key] end
     end
+
+    -- Plugins may draw UI using colors derived from Theme (not just exact copies of it),
+    -- or may cache Theme values at load time via api:GetTheme(), so a plain restyle pass
+    -- above isn't guaranteed to reach them. Reloading plugins re-runs them against the
+    -- new Theme so their panels/buttons/tabs pick up the new palette too.
+    if loadPlugins then
+        task.defer(loadPlugins)
+    end
 end
 
 -- Frames registered here get automatically re-clamped inside the screen
@@ -2958,11 +2966,10 @@ local SessionsScroll = create("ScrollingFrame", {
 })
 SessionsScroll.Parent = SessionsArea
 
-local PromptLayout = {textarea = 54, toolbar = 30, padding = 8, margin = 14, topGap = 12}
-PromptLayout.cardHeight = PromptLayout.padding + PromptLayout.textarea + PromptLayout.toolbar
-
 local ChatScroll = create("ScrollingFrame", {
-    Size = UDim2.new(1, 0, 1, -(PromptLayout.cardHeight + PromptLayout.margin + PromptLayout.topGap)), 
+    -- Bottom offset reserves room for InputFrame + SettingsBar + margins below (see their
+    -- positions further down) with a clear 15px gap so messages never touch the input box.
+    Size = UDim2.new(1, 0, 1, -137), 
     Position = UDim2.new(0, 0, 0, 30),
     BackgroundTransparency = 1, 
     ScrollBarThickness = 4, 
@@ -2983,92 +2990,58 @@ local ChatScroll = create("ScrollingFrame", {
 })
 ChatScroll.Parent = ChatArea
 
+-- Bottom bar layout (measured bottom-up so nothing can overlap):
+--  10px margin -> 24px SettingsBar -> 8px gap -> 50px InputFrame -> 15px gap -> ChatScroll
 local InputFrame = create("Frame", {
-    Size = UDim2.new(1, -20, 0, PromptLayout.cardHeight), 
-    Position = UDim2.new(0, 10, 1, -(PromptLayout.cardHeight + PromptLayout.margin)), 
-    BackgroundColor3 = Theme.SurfaceDark, 
-    BorderSizePixel = 0,
-    ClipsDescendants = true
+    Size = UDim2.new(1, -20, 0, 50), 
+    Position = UDim2.new(0, 10, 1, -92), 
+    BackgroundColor3 = Theme.Surface, 
+    BorderSizePixel = 0
 }, {
     create("UICorner", {CornerRadius = UDim.new(0, 10)}),
     create("UIStroke", {Color = Theme.Border, Thickness = 1})
 })
 InputFrame.Parent = ChatArea
 
--- Scrollable container so long/multi-line prompts stay clipped inside the
--- rounded input box instead of spilling out over the rest of the UI.
-local InputScroll = create("ScrollingFrame", {
-    Size = UDim2.new(1, -16, 0, PromptLayout.textarea),
-    Position = UDim2.new(0, 8, 0, PromptLayout.padding),
-    BackgroundTransparency = 1,
-    BorderSizePixel = 0,
-    ScrollBarThickness = 4,
-    ScrollBarImageColor3 = Theme.Border,
-    CanvasSize = UDim2.new(0, 0, 0, 0),
-    AutomaticCanvasSize = Enum.AutomaticSize.Y,
-    ClipsDescendants = true
-})
-InputScroll.Parent = InputFrame
-
 local ChatInput = create("TextBox", {
-    Size = UDim2.new(1, -6, 0, 0), 
-    Position = UDim2.new(0, 0, 0, 0), 
-    AutomaticSize = Enum.AutomaticSize.Y,
+    Size = UDim2.new(1, -62, 1, 0), 
+    Position = UDim2.new(0, 14, 0, 0), 
     BackgroundTransparency = 1, 
     Text = "", 
-    PlaceholderText = "Ask anything...", 
+    PlaceholderText = "Message AI...", 
     TextColor3 = Theme.Text, 
     PlaceholderColor3 = Theme.TextMuted, 
     Font = Enum.Font.Gotham, 
     TextSize = 13, 
-    TextWrapped = true,
-    MultiLine = true,
     TextXAlignment = Enum.TextXAlignment.Left, 
-    TextYAlignment = Enum.TextYAlignment.Top,
+    TextYAlignment = Enum.TextYAlignment.Center,
     ClearTextOnFocus = false
 })
-ChatInput.Parent = InputScroll
-
--- As the prompt wraps onto new lines, keep the newest line in view instead of
--- letting it render below the visible area of the box.
-local function scrollInputToBottom()
-    task.defer(function()
-        InputScroll.CanvasPosition = Vector2.new(0, math.max(0, InputScroll.AbsoluteCanvasSize.Y - InputScroll.AbsoluteSize.Y))
-    end)
-end
-ChatInput:GetPropertyChangedSignal("Text"):Connect(scrollInputToBottom)
-
--- Thin divider separating the textarea from the toolbar row below it.
-create("Frame", {
-    Size = UDim2.new(1, -16, 0, 1),
-    Position = UDim2.new(0, 8, 0, PromptLayout.padding + PromptLayout.textarea + 4),
-    BackgroundColor3 = Theme.Border,
-    BackgroundTransparency = 0.4,
-    BorderSizePixel = 0
-}).Parent = InputFrame
+ChatInput.Parent = InputFrame
 
 local SettingsBar = create("Frame", {
-    Size = UDim2.new(1, -16, 0, PromptLayout.toolbar - 6),
-    Position = UDim2.new(0, 8, 1, -(PromptLayout.toolbar - 2)),
+    Size = UDim2.new(1, -20, 0, 24),
+    Position = UDim2.new(0, 10, 1, -34),
     BackgroundTransparency = 1
 })
-SettingsBar.Parent = InputFrame
+SettingsBar.Parent = ChatArea
 
 local InlineModelBtn = create("TextButton", {
-    Size = UDim2.new(1, -70, 1, 0),
+    Size = UDim2.new(1, -32, 1, 0),
     Position = UDim2.new(0, 0, 0, 0),
     BackgroundTransparency = 1,
     Text = config.Model .. " ▼",
     TextColor3 = Theme.TextMuted,
     Font = Enum.Font.Gotham,
     TextSize = 11,
-    TextXAlignment = Enum.TextXAlignment.Left
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextTruncate = Enum.TextTruncate.AtEnd
 })
 InlineModelBtn.Parent = SettingsBar
 
 local ModelDropdown = create("Frame", {
-    Size = UDim2.new(1, -50, 0, 150),
-    Position = UDim2.new(0, 10, 1, -(PromptLayout.cardHeight + PromptLayout.margin + 8 + 150)),
+    Size = UDim2.new(1, -20, 0, 150),
+    Position = UDim2.new(0, 10, 1, -192),
     BackgroundColor3 = Theme.SurfaceDark,
     Visible = false,
     ZIndex = 20
@@ -3148,15 +3121,15 @@ InlineModelBtn.MouseButton1Click:Connect(function()
 end)
 
 local CogBtn = create("TextButton", {
-    Size = UDim2.new(0, 20, 0, 20),
-    Position = UDim2.new(1, -58, 0.5, -10),
+    Size = UDim2.new(0, 24, 0, 24),
+    Position = UDim2.new(1, -24, 0, 0),
     BackgroundColor3 = Theme.Surface,
     Text = "⚙️",
     TextColor3 = Theme.TextMuted,
     Font = Enum.Font.Gotham,
-    TextSize = 12
+    TextSize = 13
 }, {
-    create("UICorner", {CornerRadius = UDim.new(0, 4)})
+    create("UICorner", {CornerRadius = UDim.new(0, 6)})
 })
 CogBtn.Parent = SettingsBar
 applyHover(CogBtn, Theme.Surface, Theme.SurfaceDark)
@@ -3166,22 +3139,22 @@ CogBtn.MouseButton1Click:Connect(function()
 end)
 
 local SendBtn = create("TextButton", {
-    Size = UDim2.new(0, 24, 0, 24), 
-    Position = UDim2.new(1, -24, 0.5, -12), 
+    Size = UDim2.new(0, 34, 0, 34), 
+    Position = UDim2.new(1, -42, 0.5, -17), 
     BackgroundColor3 = Theme.Accent, 
     Text = ">", 
     TextColor3 = Theme.Text, 
     Font = Enum.Font.GothamBold, 
-    TextSize = 13
+    TextSize = 18
 }, {
-    create("UICorner", {CornerRadius = UDim.new(0, 6)})
+    create("UICorner", {CornerRadius = UDim.new(0, 8)})
 })
-SendBtn.Parent = SettingsBar
+SendBtn.Parent = InputFrame
 applyHover(SendBtn, Theme.Accent, Theme.AccentHover)
 
 local StopBtn = create("TextButton", {
-    Size = UDim2.new(0, 24, 0, 24), 
-    Position = UDim2.new(1, -24, 0.5, -12), 
+    Size = UDim2.new(0, 34, 0, 34), 
+    Position = UDim2.new(1, -42, 0.5, -17), 
     BackgroundColor3 = Color3.fromRGB(248, 113, 113), 
     Text = "X", 
     TextColor3 = Theme.Text, 
@@ -3189,13 +3162,17 @@ local StopBtn = create("TextButton", {
     TextSize = 14,
     Visible = false
 }, {
-    create("UICorner", {CornerRadius = UDim.new(0, 6)})
+    create("UICorner", {CornerRadius = UDim.new(0, 8)})
 })
-StopBtn.Parent = SettingsBar
+StopBtn.Parent = InputFrame
 applyHover(StopBtn, Color3.fromRGB(248, 113, 113), Color3.fromRGB(220, 38, 38))
 
 local currentRequestId = 0
 local currentLoadingMsg = nil
+-- Declared here (not just further down) so the click handler below closes over
+-- this exact local instead of implicitly creating a global `isLoading`, which
+-- was why Stop previously did nothing.
+local isLoading = false
 
 StopBtn.MouseButton1Click:Connect(function()
     if isLoading then
@@ -3568,8 +3545,6 @@ local function tryHandleLocalCommand(rawText)
 
     return false
 end
-
-local isLoading = false
 
 local function handleSend()
     if isLoading then return end
@@ -4292,6 +4267,16 @@ local ExpCloseBtn = create("TextButton", {
 ExpCloseBtn.MouseButton1Click:Connect(function() ExplorerWindow.Visible = false end)
 ExplorerToggleBtn.MouseButton1Click:Connect(function() ExplorerWindow.Visible = not ExplorerWindow.Visible end)
 
+-- Manual full-rebuild button. The tree also updates live (see renderNode's
+-- ChildAdded/ChildRemoving hookup below), but this is a reliable fallback if
+-- anything ever drifts out of sync (e.g. huge bulk replacements).
+local ExpRefreshBtn = create("TextButton", {
+    Size = UDim2.new(0, 35, 0, 35), Position = UDim2.new(1, -70, 0, 0), BackgroundTransparency = 1,
+    Text = "⟳", TextColor3 = Theme.TextMuted, Font = Enum.Font.GothamBold, TextSize = 16, Parent = ExpTopBar
+})
+ExpRefreshBtn.MouseEnter:Connect(function() ExpRefreshBtn.TextColor3 = Theme.Text end)
+ExpRefreshBtn.MouseLeave:Connect(function() ExpRefreshBtn.TextColor3 = Theme.TextMuted end)
+
 local ExpScroll = create("ScrollingFrame", {
     Size = UDim2.new(1, 0, 1, -45), Position = UDim2.new(0, 0, 0, 40), BackgroundTransparency = 1,
     ScrollBarThickness = 4, AutomaticCanvasSize = Enum.AutomaticSize.Y
@@ -4458,7 +4443,12 @@ local function renderNode(instance, depth, parentFrame)
     local hasChildren = #instance:GetChildren() > 0
     local isExpanded = false
     local childrenFrame = nil
-    
+    -- Live-tracked map of childInstance -> its rendered nodeContainer Frame, so
+    -- ChildAdded/ChildRemoving can add/remove exactly the right row instead of
+    -- requiring a full manual refresh every time the game's instance tree changes.
+    local childFrames = {}
+    local liveConns = {}
+
     local nodeContainer = create("Frame", {
         Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, AutomaticSize = Enum.AutomaticSize.Y
     }, {
@@ -4516,29 +4506,92 @@ local function renderNode(instance, depth, parentFrame)
     
     row.Parent = nodeContainer
     nodeContainer.Parent = parentFrame
-    
-    if hasChildren then
-        expandBtn.MouseButton1Click:Connect(function()
-            isExpanded = not isExpanded
-            expandBtn.Text = isExpanded and "▼" or "▶"
-            
-            if isExpanded then
-                if not childrenFrame then
-                    childrenFrame = create("Frame", {
-                        Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1,
-                        AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 1, Parent = nodeContainer
-                    }, {create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder})})
-                    
-                    for _, child in ipairs(instance:GetChildren()) do
-                        pcall(renderNode, child, depth + 1, childrenFrame)
-                    end
-                end
-                childrenFrame.Visible = true
-            else
-                if childrenFrame then childrenFrame.Visible = false end
+
+    -- Renders (or re-renders) a single child instance's row into childrenFrame,
+    -- replacing any existing row for the same instance. Used both for the
+    -- initial expand and for ChildAdded events that arrive later.
+    local function addChildNode(child)
+        if not childrenFrame then return end
+        if childFrames[child] then
+            childFrames[child]:Destroy()
+            childFrames[child] = nil
+        end
+        pcall(function()
+            renderNode(child, depth + 1, childrenFrame)
+            -- renderNode parents the new row as the last child of childrenFrame.
+            local rendered = childrenFrame:GetChildren()
+            local newest = rendered[#rendered]
+            if newest and newest:IsA("Frame") then
+                childFrames[child] = newest
             end
         end)
     end
+
+    local function ensureExpanded()
+        if childrenFrame then return end
+        childrenFrame = create("Frame", {
+            Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1,
+            AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 1, Parent = nodeContainer
+        }, {create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder})})
+
+        for _, child in ipairs(instance:GetChildren()) do
+            addChildNode(child)
+        end
+    end
+
+    expandBtn.MouseButton1Click:Connect(function()
+        if not hasChildren then return end
+        isExpanded = not isExpanded
+        expandBtn.Text = isExpanded and "▼" or "▶"
+
+        if isExpanded then
+            ensureExpanded()
+            childrenFrame.Visible = true
+        else
+            if childrenFrame then childrenFrame.Visible = false end
+        end
+    end)
+
+    -- Keep this node in sync with the live game: new instances (e.g. a new map
+    -- model added to Workspace) get their own row appended automatically, and
+    -- removed/destroyed instances (e.g. the old map being deleted) have their
+    -- row cleaned up immediately — no manual refresh required.
+    table.insert(liveConns, instance.ChildAdded:Connect(function(child)
+        hasChildren = true
+        expandBtn.Text = isExpanded and "▼" or "▶"
+        if isExpanded then
+            addChildNode(child)
+        end
+    end))
+
+    table.insert(liveConns, instance.ChildRemoving:Connect(function(child)
+        if childFrames[child] then
+            childFrames[child]:Destroy()
+            childFrames[child] = nil
+        end
+        -- Defer the recount since the child hasn't actually left yet at the
+        -- moment ChildRemoving fires.
+        task.defer(function()
+            if not nodeContainer or not nodeContainer.Parent then return end
+            local ok, remaining = pcall(function() return #instance:GetChildren() end)
+            if ok then
+                hasChildren = remaining > 0
+                if not hasChildren then
+                    isExpanded = false
+                    expandBtn.Text = ""
+                    if childrenFrame then childrenFrame.Visible = false end
+                else
+                    expandBtn.Text = isExpanded and "▼" or "▶"
+                end
+            end
+        end)
+    end))
+
+    nodeContainer.Destroying:Connect(function()
+        for _, conn in ipairs(liveConns) do
+            pcall(function() conn:Disconnect() end)
+        end
+    end)
 end
 
 local function initExplorer()
@@ -4554,6 +4607,7 @@ local function initExplorer()
     for _, s in ipairs(services) do pcall(renderNode, s, 0, ExpScroll) end
 end
 initExplorer()
+ExpRefreshBtn.MouseButton1Click:Connect(initExplorer)
 
 local function loadLatestSession()
     local files = {}
