@@ -1,9 +1,12 @@
-print("██╗      ██╗   ██╗  █████╗  ██╗   ██╗        ███████╗ ████████╗ ██╗   ██╗ ██████╗  ██╗  ██████╗")
-print("██║      ██║   ██║ ██╔══██╗ ██║   ██║        ██╔════╝ ╚══██╔══╝ ██║   ██║ ██╔══██╗ ██║ ██╔═══██╗")
-print("██║      ██║   ██║ ███████║ ██║   ██║  ████  ███████╗    ██║    ██║   ██║ ██║  ██║ ██║ ██║   ██║")
-print("██║      ██║   ██║ ██╔══██║ ██║   ██║        ╚════██║    ██║    ██║   ██║ ██║  ██║ ██║ ██║   ██║")
-print("███████╗ ╚██████╔╝ ██║  ██║ ╚██████╔╝        ███████║    ██║    ╚██████╔╝ ██████╔╝ ██║ ╚██████╔╝")
-print("╚══════╝  ╚═════╝  ╚═╝  ╚═╝  ╚═════╝         ╚══════╝    ╚═╝     ╚═════╝  ╚═════╝  ╚═╝  ╚═════╝")
+--[[
+    Roblox AI Studio IDE - Upgraded
+    Features:
+    - Smooth UI Animations
+    - Chat Markdown Formatting & Code Syntax Highlighting
+    - Deep AI Context Engine (Console & Editor Awareness)
+    - Full IDE Layout
+    - Game Context Commands (!read, !ls)
+]]
 
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
@@ -21,6 +24,7 @@ local makefolder = makefolder or function() end
 local isfolder = isfolder or function() return false end
 local decompile = decompile or function() return "-- Decompile not supported by your executor." end
 local setclipboard = setclipboard or toclipboard or function() end
+local delfile = delfile or function() end
 
 if not requestFunc then
     game.StarterGui:SetCore("SendNotification", {
@@ -37,9 +41,9 @@ local CONFIG_FILE = CONFIG_DIR .. "/config.json"
 local SESSIONS_DIR = CONFIG_DIR .. "/sessions"
 local PLUGINS_DIR = CONFIG_DIR .. "/plugins"
 
-local pluginCommands = {} 
-local pluginCommandDescriptions = {} 
-local pluginUnloadCallbacks = {} 
+local pluginCommands = {} -- populated by plugins via api:RegisterCommand
+local pluginCommandDescriptions = {} -- [cmdName] = description string, populated alongside pluginCommands
+local pluginUnloadCallbacks = {} -- populated by plugins via api:OnUnload, fired right before every Reload
 
 local currentSessionId = tostring(os.time())
 local saveSession
@@ -67,7 +71,9 @@ local config = {
         "deepseek/deepseek-r1:free",
         "google/gemini-2.0-flash-lite-preview-02-05:free"
     },
-    PluginMeta = {} -- [fileName] = {DisplayName = string|nil, Enabled = bool}
+    PluginMeta = {}, -- [fileName] = {DisplayName = string|nil, Enabled = bool}
+    CurrentTheme = "Dark (Default)", -- name of the active theme (built-in preset or a key in CustomThemes)
+    CustomThemes = {} -- [themeName] = {Background=.., Surface=.., ...} (hex strings, JSON-friendly)
 }
 
 if not isfolder(CONFIG_DIR) then 
@@ -95,6 +101,654 @@ local function saveConfig()
         writefile(CONFIG_FILE, HttpService:JSONEncode(config)) 
     end)
 end
+
+-- Embedded copy of PLUGIN_API.md, rendered in the in-IDE "Docs" viewer (Plugins window).
+-- Kept as a literal string so plugin developers can read the docs without leaving the executor.
+local PLUGIN_API_DOCS_MD = [[
+# LuauStudio v2 — Plugin API Documentation (Merged)
+
+> **Version:** 1.0
+> This file merges `PLUGIN_API.md` and `PLUGIN_API_Additional_Docs.md` into a single reference, cross-checked against `createPluginAPI()` in the IDE source. A few corrections are marked **[corrected]** below where the original docs didn't match the actual implementation.
+
+---
+
+## Table of Contents
+
+1. [Overview](#overview)
+2. [Getting Started](#getting-started)
+3. [Plugin Structure](#plugin-structure)
+4. [Plugin Lifecycle](#plugin-lifecycle)
+5. [API Reference](#api-reference)
+   - [Metadata](#metadata)
+   - [Code Editor Access](#code-editor-access)
+   - [Multi-file Session Access](#multi-file-session-access)
+   - [Persistent Storage](#persistent-storage)
+   - [Messaging](#messaging)
+   - [Chat & Session Info](#chat--session-info)
+   - [Game / Instance Helpers](#game--instance-helpers)
+   - [Theme](#theme)
+   - [Commands](#commands)
+   - [Lifecycle & Event Callbacks](#lifecycle--event-callbacks)
+   - [UI: Buttons & Panels](#ui-buttons--panels)
+6. [Theme Colors](#theme-colors)
+7. [Example Plugins](#example-plugins)
+8. [Tips & Gotchas](#tips--gotchas)
+9. [Best Practices](#best-practices)
+
+---
+
+## Overview
+
+LuauStudio v2 supports a plugin system that lets you extend the IDE with custom commands, UI panels, and event hooks. Plugins are plain `.lua` files dropped into a folder — no configuration needed.
+
+Plugins have **full executor access** to the game (they run in the same environment as the IDE script), plus a rich `api` object for interacting with the IDE itself.
+
+---
+
+## Getting Started
+
+### 1. Find your plugin folder
+
+Plugins live in your executor's file workspace:
+
+```
+Roblox_AI_Assistant/plugins/
+```
+
+On most executors this maps to something like:
+```
+C:\Users\YourName\AppData\Local\Synapse\workspace\Roblox_AI_Assistant\plugins\
+```
+
+### 2. Create your plugin file
+
+Create any `.lua` file in the plugins folder. For example:
+```
+Roblox_AI_Assistant/plugins/MyPlugin.lua
+```
+
+### 3. Reload plugins
+
+Inside LuauStudio, click the **Plugins** button in the top bar, then click **Reload**. Your plugin will appear with an **OK**/loaded, **disabled**, or **ERR** status badge.
+
+---
+
+## Plugin Structure
+
+Every plugin must be a Lua file that **returns a function**. That function receives the `api` object as its only argument.
+
+```lua
+-- MyPlugin.lua
+
+return function(api)
+    -- Your plugin code goes here
+    api:Log("MyPlugin loaded!")
+end
+```
+
+> **Why return a function?** The file is loaded with `loadstring`, and calling the returned function with `api` is what actually initializes your plugin. This pattern lets the IDE safely sandbox each plugin.
+
+---
+
+## Plugin Lifecycle
+
+```text
+Plugin Loaded
+        │
+        ▼
+return function(api)
+        │
+        ▼
+Register commands
+Register callbacks
+Create panels
+Create toolbar buttons
+Connect events
+        │
+        ▼
+User interacts
+        │
+        ▼
+Plugin Reload / Disable
+        │
+        ▼
+OnUnload()
+        │
+        ▼
+Cleanup resources
+Plugin exits
+```
+
+On every **Reload**, the IDE first fires all previously-registered `OnUnload` callbacks, then clears all plugin commands, `OnAIResponse`/`OnCodeChange` callbacks, toolbar buttons, and floating panels before re-running each enabled plugin file from scratch.
+
+---
+
+## API Reference
+
+> **Multi-file sessions:** A session can hold several open files (Luau `.lua`/`.luau`, `.json`, `.md`), shown as tabs above the editor. `GetCode`/`SetCode`/`OnCodeChange` always act on whichever file tab is currently **active**. Use the file-management calls below to work with other files in the session.
+
+### Metadata
+
+#### `api.Name`
+**Type:** `string`
+
+The filename of your plugin (without the `.lua` extension).
+
+```lua
+print(api.Name) -- "MyPlugin"
+```
+
+---
+
+### Code Editor Access
+
+#### `api:GetCode()`
+**Returns:** `string`
+
+Returns the current text content of the active file tab.
+
+```lua
+local code = api:GetCode()
+print("Editor has", #code, "characters")
+```
+
+#### `api:SetCode(text)`
+**Parameters:** `text: string`
+
+Replaces the entire contents of the active file tab with the given text.
+
+```lua
+api:SetCode("-- Generated by MyPlugin\nprint('hello')")
+```
+
+> **Warning:** This overwrites everything in the active file with no undo. Store the previous content with `api:GetCode()` first if you need to be reversible.
+
+#### `api:GetSelection()`
+**Returns:** `table` — `{startPos, endPos, text, line}`
+
+Returns the currently selected text in the editor (or a zero-length selection at the cursor if nothing is selected), plus the 1-indexed line number the cursor sits on.
+
+```lua
+local sel = api:GetSelection()
+if sel.text ~= "" then
+    api:Log("Selected " .. #sel.text .. " chars on line " .. sel.line)
+end
+```
+
+#### `api:InsertText(text)`
+**Parameters:** `text: string`
+
+Inserts text at the current cursor position instead of replacing the whole buffer. Falls back to appending at the end if nothing is focused.
+
+```lua
+api:InsertText("-- inserted by MyPlugin\n")
+```
+
+---
+
+### Multi-file Session Access
+
+Sessions can hold multiple files. These calls let your plugin read and manage the whole set, not just the active tab. Supported extensions: `.lua`, `.luau`, `.json`, `.md`.
+
+| Call | Description |
+|---|---|
+| `api:GetFiles()` | Returns `{{name, language, content}, ...}` for every open file. |
+| `api:GetActiveFile()` | Returns the name of the currently active file tab. |
+| `api:OpenFile(name)` | Switches the editor to the given file. Returns `true`/`false`. |
+| `api:CreateFile(name, content?, language?)` | Creates and opens a new file tab. `language` is inferred from the extension if omitted. Returns `true` or `false, errorMessage`. |
+| `api:GetFile(name)` | Returns the content of a specific file without switching to it. Returns `nil` if not found. |
+| `api:SetFile(name, content)` | Overwrites the content of a specific file (switching the live buffer only if it's already active). Returns `true`/`false`. |
+
+```lua
+api:CreateFile("notes.md", "# Todo\n- [ ] refactor this")
+local mainSrc = api:GetFile("Main.lua")
+```
+
+---
+
+### Persistent Storage
+
+#### `api:GetStorage(key, default)` / `api:SetStorage(key, value)`
+
+Persistent per-plugin key/value storage that survives **Reload** and IDE restarts (backed by `config.json`). Use this instead of module-level locals for anything that needs to persist.
+
+```lua
+local enabled = api:GetStorage("enabled", false)
+
+api:RegisterCommand("!autofixer", function(args)
+    if args == "on" then
+        api:SetStorage("enabled", true)
+        api:AddMessage("AutoFixer **ON**.")
+    end
+end)
+```
+
+---
+
+### Messaging
+
+#### `api:AddMessage(text)`
+**Parameters:** `text: string` (supports Markdown)
+
+Posts a message into the AI chat as a system reply, prefixed with your plugin's name. Supports bold, italic, and code blocks.
+
+```lua
+api:AddMessage("**Analysis complete!** Found 3 issues.")
+api:AddMessage("Result:\n```lua\nprint('fixed code')\n```")
+```
+
+#### `api:Log(text)`
+**Parameters:** `text: string`
+
+Writes a line to the IDE's console panel (visible via Toggle Console).
+
+```lua
+api:Log("Scanning workspace...")
+api:Log("Done. Found " .. count .. " instances.")
+```
+
+#### `api:Notify(title, text, duration)` **[undocumented in original files — added]**
+**Parameters:**
+- `title: string` (optional — defaults to your plugin name)
+- `text: string` (optional)
+- `duration: number` (optional — seconds, defaults to `5`)
+
+Fires a native Roblox `SendNotification` toast via `StarterGui:SetCore`. Wrapped in `pcall`, so it fails silently if notifications aren't available.
+
+```lua
+api:Notify("MyPlugin", "Scan complete!", 4)
+```
+
+---
+
+### Chat & Session Info
+
+#### `api:GetChatHistory()`
+**Returns:** an array of `{role, content}` messages (the system prompt is excluded).
+
+```lua
+local history = api:GetChatHistory()
+
+for _, message in ipairs(history) do
+    print(message.role)
+    print(message.content)
+end
+```
+
+#### `api:GetSessionInfo()`
+**Returns:** `table` — `{id, title, files, activeFile}`, where `files` is an array of `{name, language}`.
+
+```lua
+local info = api:GetSessionInfo()
+
+print(info.id)
+print(info.activeFile)
+print(#info.files)
+```
+
+---
+
+### Game / Instance Helpers
+
+#### `api:ResolvePath(path)`
+**Parameters:** `path: string` — a Roblox object path.
+**Returns:** resolved `Instance` or `nil`.
+
+```lua
+local part = api:ResolvePath("workspace.Baseplate")
+
+if part then
+    print(part.Position)
+end
+```
+
+#### `api:Decompile(instance)`
+**Parameters:** `instance: Instance` — a script instance.
+**Returns:** a string containing the decompiled source, or `nil` if decompilation failed.
+
+```lua
+local source = api:Decompile(workspace.Script)
+if source then
+    api:CreateFile("Recovered.lua", source)
+end
+```
+
+These share the same underlying helpers as the IDE's built-in `!ls` and `!decompile` chat commands.
+
+---
+
+### Theme
+
+#### `api:GetTheme()`
+**Returns:** `table`
+
+Returns the IDE's color theme table. Use this to style your custom UI consistently. See [Theme Colors](#theme-colors) below for all available keys.
+
+```lua
+local Theme = api:GetTheme()
+local bg = Theme.Background
+local accent = Theme.Accent
+```
+
+---
+
+### Commands
+
+#### `api:RegisterCommand(name, fn, description?)`
+**Parameters:**
+- `name: string` — the command trigger, starting with `!`. Case-insensitive.
+- `fn: function(args: string)` — called when the user types this command in the AI chat.
+- `description: string` **(optional)** **[missing from original docs — added]** — a short label shown next to the command name in the Plugins panel (e.g. `!hello (says hi)`).
+
+Registers a custom chat command. When the user types it and hits Send, your function is called **instead** of sending to the AI.
+
+```lua
+api:RegisterCommand("!hello", function(args)
+    -- args = everything after "!hello " in the message
+    local name = args ~= "" and args or "World"
+    api:AddMessage("Hello, **" .. name .. "**!")
+end, "greets someone")
+```
+
+The user types `!hello Prita` → your function runs with `args = "Prita"`.
+
+> **[Corrected]** Only `!decompile` and `!files` are handled as always-local, built-in commands ahead of plugin commands — the original docs' mention of `!read`/`!ls`/`!prop` taking the same kind of priority isn't accurate to the current dispatch code; those are context-injection commands routed differently, not commands intercepted before your plugin's handler runs.
+
+---
+
+### Lifecycle & Event Callbacks
+
+#### `api:OnUnload(callback)`
+
+Registers a callback that runs immediately before the plugin is unloaded (i.e., right before a Reload tears down state). Use this to disconnect events, destroy UI, and clean up resources.
+
+| Name | Type | Description |
+|---|---|---|
+| `callback` | `function` | Function called before the plugin is unloaded. |
+
+```lua
+local connection
+
+return function(api)
+    connection = workspace.ChildAdded:Connect(function(child)
+        api:Log(child.Name)
+    end)
+
+    api:OnUnload(function()
+        if connection then
+            connection:Disconnect()
+        end
+        api:Log("Plugin unloaded.")
+    end)
+end
+```
+
+#### `api:OnAIResponse(callback)`
+**Parameters:** `callback: function(reply: string)`
+
+Subscribes to AI reply events. Your callback fires with the full reply text (raw Markdown) every time the AI responds.
+
+```lua
+api:OnAIResponse(function(reply)
+    if reply:find("```lua") then
+        api:Log("AI provided a Lua code block.")
+    end
+end)
+```
+
+> Callbacks are cleared and re-registered every time you click **Reload**.
+
+#### `api:OnCodeChange(callback)`
+**Parameters:** `callback: function(code: string)`
+
+Fires on every keystroke in the editor (of the active file). Be careful — this runs very frequently.
+
+```lua
+api:OnCodeChange(function(code)
+    local lineCount = 1
+    for _ in code:gmatch("\n") do lineCount = lineCount + 1 end
+    api:Log("Lines: " .. lineCount)
+end)
+```
+
+> Use a debounce pattern if you're doing expensive work like HTTP requests.
+
+#### `api:SendToAI(text)`
+**Parameters:** `text: string`
+
+Programmatically sends a message to the AI as if the user typed it. Triggers the full pipeline (context injection, API request, response display).
+
+```lua
+api:SendToAI("Please review my code and suggest improvements.")
+```
+
+> **Warning:** This starts a real API request and consumes OpenRouter credits. Never call this in loops or inside `OnCodeChange`.
+
+---
+
+### UI: Buttons & Panels
+
+#### `api:AddButton(label, callback)` **[corrected — original docs described a single `options` table]**
+
+Adds a button to the editor's top bar (top-right, next to Execute/Clear).
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `label` | `string` | Yes | Button text. |
+| `callback` | `function` | Yes | Called when clicked (wrapped in `pcall`). |
+
+There is currently **no `Tooltip` option** — the original doc's `options` table form (`{Text=, Callback=, Tooltip=}`) does not match the actual implementation, which takes two positional arguments instead.
+
+**Returns:** the created `TextButton`.
+
+```lua
+api:AddButton("Format", function()
+    api:AddMessage("Formatting...")
+end)
+```
+
+#### `api:CreatePanel(label)`
+**Parameters:** `label: string` — title shown on the panel's title bar (falls back to the plugin name if omitted).
+
+**Returns:** `content: Frame, panel: Frame`
+
+Creates a dedicated draggable floating window for your plugin's UI. A toggle entry is added to the "Plugin UI" dropdown on the IDE top bar.
+
+- **`content`** — a blank `Frame` to populate with your custom UI.
+- **`panel`** — the outer window frame (for programmatic show/hide).
+
+```lua
+local content, panel = api:CreatePanel("My Tool")
+local Theme = api:GetTheme()
+
+local label = Instance.new("TextLabel")
+label.Size = UDim2.new(1, -20, 0, 30)
+label.Position = UDim2.new(0, 10, 0, 10)
+label.BackgroundTransparency = 1
+label.Text = "Hello from my panel!"
+label.TextColor3 = Theme.Text
+label.Font = Enum.Font.Gotham
+label.TextSize = 13
+label.Parent = content
+```
+
+> Panels persist in the ScreenGui across reloads unless you destroy them yourself (`panel:Destroy()`), typically from an `OnUnload` callback.
+
+---
+
+## Theme Colors
+
+| Key | Description | Approx. Color |
+|---|---|---|
+| `Background` | Main window background | `rgb(24, 24, 27)` |
+| `Surface` | Card / message bubble surface | `rgb(39, 39, 42)` |
+| `SurfaceDark` | Top bars, gutters | `rgb(15, 15, 18)` |
+| `Accent` | Primary blue accent | `rgb(59, 130, 246)` |
+| `AccentHover` | Lighter blue for hover states | `rgb(96, 165, 250)` |
+| `Text` | Primary text (near-white) | `rgb(250, 250, 250)` |
+| `TextMuted` | Secondary / muted text | `rgb(161, 161, 170)` |
+| `Border` | Borders and dividers | `rgb(63, 63, 70)` |
+| `CodeBackground` | Code block background | `rgb(20, 20, 20)` |
+
+---
+
+## Example Plugins
+
+### Example 1: Hello World
+
+A minimal plugin that registers a `!hello` command.
+
+```lua
+-- HelloWorld.lua
+
+return function(api)
+    api:Log("HelloWorld plugin loaded!")
+
+    api:RegisterCommand("!hello", function(args)
+        local name = (args ~= "" and args) or "World"
+        api:AddMessage("# Hello, " .. name .. "!\nGreetings from the HelloWorld plugin.")
+    end, "says hello")
+end
+```
+
+**Usage:** Type `!hello Prita` in the AI chat.
+
+---
+
+### Example 2: Code Statistics Panel
+
+A plugin that adds a floating panel showing live stats about your editor code.
+
+```lua
+-- CodeStats.lua
+
+return function(api)
+    local Theme = api:GetTheme()
+    local content, panel = api:CreatePanel("Code Stats")
+
+    local statsLabel = Instance.new("TextLabel")
+    statsLabel.Size = UDim2.new(1, -20, 1, -20)
+    statsLabel.Position = UDim2.new(0, 10, 0, 10)
+    statsLabel.BackgroundTransparency = 1
+    statsLabel.TextColor3 = Theme.Text
+    statsLabel.Font = Enum.Font.RobotoMono
+    statsLabel.TextSize = 13
+    statsLabel.TextXAlignment = Enum.TextXAlignment.Left
+    statsLabel.TextYAlignment = Enum.TextYAlignment.Top
+    statsLabel.TextWrapped = true
+    statsLabel.Parent = content
+
+    local function updateStats(code)
+        local lines, chars, funcs, comments = 1, #code, 0, 0
+        for _ in code:gmatch("\n") do lines = lines + 1 end
+        for _ in code:gmatch("function%s") do funcs = funcs + 1 end
+        for _ in code:gmatch("%-%-[^\n]*") do comments = comments + 1 end
+
+        statsLabel.Text = string.format(
+            "Lines:     %d\nChars:     %d\nFunctions: %d\nComments:  %d",
+            lines, chars, funcs, comments
+        )
+    end
+
+    api:OnCodeChange(updateStats)
+    updateStats(api:GetCode())
+    api:Log("CodeStats panel ready.")
+end
+```
+
+**Usage:** Click **Plugins → Code Stats** to open the live panel.
+
+---
+
+### Example 3: Auto Error Fixer
+
+Watches for runtime errors and automatically asks the AI to fix them.
+
+```lua
+-- AutoFixer.lua
+
+return function(api)
+    local enabled = false
+    local lastError = nil
+    local debounce = false
+
+    api:RegisterCommand("!autofixer", function(args)
+        if args == "on" then
+            enabled = true
+            api:AddMessage("AutoFixer **ON** — I will auto-ask the AI to fix runtime errors.")
+        elseif args == "off" then
+            enabled = false
+            api:AddMessage("AutoFixer **OFF**.")
+        else
+            api:AddMessage("AutoFixer is **" .. (enabled and "ON" or "OFF") .. "**.\nUsage: `!autofixer on` / `!autofixer off`")
+        end
+    end, "toggles auto-fix on errors")
+
+    game:GetService("LogService").MessageOut:Connect(function(msg, msgType)
+        if not enabled then return end
+        if msgType ~= Enum.MessageType.MessageError then return end
+        if debounce or msg == lastError then return end
+
+        lastError = msg
+        debounce = true
+        task.delay(2, function() debounce = false end)
+
+        api:AddMessage("**AutoFixer caught an error:**\n```\n" .. msg .. "\n```\nAsking AI to fix it...")
+        api:SendToAI("I got this error when running my code: " .. msg .. "\nPlease fix the code in my editor.")
+    end)
+
+    api:Log("AutoFixer loaded. Type !autofixer on to enable.")
+end
+```
+
+**Usage:** Type `!autofixer on` in the chat. Any runtime error triggers an automatic AI fix request.
+
+---
+
+## Tips & Gotchas
+
+### Do's ✅
+- **Always wrap risky logic in `pcall`** — errors inside your plugin show as ERR in the Plugins list but don't crash the IDE.
+- **Use `api:Log()` during development** — open Toggle Console to see your plugin's output.
+- **Store `api:GetTheme()` in a local** at the top of your plugin for easy reuse.
+- **Use `task.spawn()`** if you need to do async work inside callbacks.
+- **Disconnect events in `OnUnload()`.**
+- **Prefer `InsertText()` over `SetCode()`** for partial edits.
+
+### Don'ts ❌
+- **Don't call `api:SendToAI()` inside `OnCodeChange`** — this fires on every keystroke and would spam API requests.
+- **Don't yield (`task.wait`) inside callbacks** — spawn a new thread with `task.spawn` if you need delays.
+- **Don't use global variables** — use `local` for everything. Globals persist across reloads and cause cross-plugin bugs.
+
+### Reload Behavior
+When you click **Reload**:
+- All `OnUnload` callbacks from the previous load fire first.
+- All plugin commands are cleared and re-registered.
+- All `OnAIResponse` / `OnCodeChange` callbacks are cleared and re-registered.
+- Toolbar buttons from `AddButton` are removed and must be re-added by the plugin.
+- Panels from `CreatePanel` remain in the ScreenGui — destroy them manually if needed (`panel:Destroy()`), ideally in `OnUnload`.
+
+### Naming Conventions
+Plugin filenames should be alphanumeric with no spaces.
+
+```
+Good:  MyPlugin.lua, CodeStats.lua, auto_fixer.lua
+Avoid: My Plugin.lua, my-plugin.lua
+```
+
+---
+
+## Best Practices
+
+- Keep callbacks lightweight.
+- Use `task.spawn()` for expensive work.
+- Disconnect events in `OnUnload()`.
+- Prefer `InsertText()` over `SetCode()` for partial edits.
+- Do not call `SendToAI()` from `OnCodeChange()`.
+- Always use `api:GetTheme()` for UI colors.
+]]
 
 -- === Multi-file session helpers ===
 -- Supported file types: Luau (.lua / .luau), JSON (.json), Markdown (.md)
@@ -136,6 +790,10 @@ local function findFileIndex(name)
 end
 
 -- Theme & Utils
+-- ScreenGui is forward-declared here (assigned later, once created) so theme functions
+-- defined in this section can reference it when re-skinning the whole UI tree.
+local ScreenGui
+
 local Theme = {
     Background = Color3.fromRGB(24, 24, 27),
     Surface = Color3.fromRGB(39, 39, 42),
@@ -146,6 +804,75 @@ local Theme = {
     TextMuted = Color3.fromRGB(161, 161, 170),
     Border = Color3.fromRGB(63, 63, 70),
     CodeBackground = Color3.fromRGB(20, 20, 20)
+}
+
+-- Theme data & helpers are grouped into two tables (ThemeData / ThemeUtil) instead of many
+-- separate top-level locals, since Lua's compiler caps a single chunk at 200 locals and this
+-- file already uses most of that budget building the rest of the IDE's UI.
+local ThemeData = {}
+
+-- Ordered list of theme keys (used for UI generation & JSON export/import)
+ThemeData.Keys = {
+    "Background", "Surface", "SurfaceDark", "Accent", "AccentHover",
+    "Text", "TextMuted", "Border", "CodeBackground"
+}
+
+ThemeData.ColorProps = {"BackgroundColor3", "TextColor3", "PlaceholderColor3", "ScrollBarImageColor3", "Color"}
+
+-- Built-in premade themes. Each entry is a full palette matching ThemeData.Keys.
+ThemeData.Presets = {
+    ["Dark (Default)"] = {
+        Background = Color3.fromRGB(24, 24, 27), Surface = Color3.fromRGB(39, 39, 42),
+        SurfaceDark = Color3.fromRGB(15, 15, 18), Accent = Color3.fromRGB(59, 130, 246),
+        AccentHover = Color3.fromRGB(96, 165, 250), Text = Color3.fromRGB(250, 250, 250),
+        TextMuted = Color3.fromRGB(161, 161, 170), Border = Color3.fromRGB(63, 63, 70),
+        CodeBackground = Color3.fromRGB(20, 20, 20)
+    },
+    ["Midnight Purple"] = {
+        Background = Color3.fromRGB(22, 20, 32), Surface = Color3.fromRGB(37, 33, 54),
+        SurfaceDark = Color3.fromRGB(14, 12, 22), Accent = Color3.fromRGB(147, 112, 246),
+        AccentHover = Color3.fromRGB(178, 150, 255), Text = Color3.fromRGB(245, 243, 250),
+        TextMuted = Color3.fromRGB(170, 163, 190), Border = Color3.fromRGB(60, 53, 82),
+        CodeBackground = Color3.fromRGB(18, 16, 26)
+    },
+    ["Solarized Dusk"] = {
+        Background = Color3.fromRGB(0, 43, 54), Surface = Color3.fromRGB(7, 54, 66),
+        SurfaceDark = Color3.fromRGB(0, 33, 41), Accent = Color3.fromRGB(38, 139, 210),
+        AccentHover = Color3.fromRGB(81, 168, 227), Text = Color3.fromRGB(238, 232, 213),
+        TextMuted = Color3.fromRGB(131, 148, 150), Border = Color3.fromRGB(35, 76, 88),
+        CodeBackground = Color3.fromRGB(0, 30, 38)
+    },
+    ["Nord"] = {
+        Background = Color3.fromRGB(46, 52, 64), Surface = Color3.fromRGB(59, 66, 82),
+        SurfaceDark = Color3.fromRGB(36, 41, 51), Accent = Color3.fromRGB(136, 192, 208),
+        AccentHover = Color3.fromRGB(163, 209, 224), Text = Color3.fromRGB(236, 239, 244),
+        TextMuted = Color3.fromRGB(160, 171, 191), Border = Color3.fromRGB(76, 86, 106),
+        CodeBackground = Color3.fromRGB(34, 39, 48)
+    },
+    ["Forest"] = {
+        Background = Color3.fromRGB(20, 28, 22), Surface = Color3.fromRGB(32, 44, 35),
+        SurfaceDark = Color3.fromRGB(13, 19, 14), Accent = Color3.fromRGB(87, 176, 105),
+        AccentHover = Color3.fromRGB(120, 204, 137), Text = Color3.fromRGB(238, 245, 238),
+        TextMuted = Color3.fromRGB(150, 170, 152), Border = Color3.fromRGB(50, 68, 53),
+        CodeBackground = Color3.fromRGB(16, 22, 17)
+    },
+    ["Crimson"] = {
+        Background = Color3.fromRGB(28, 20, 21), Surface = Color3.fromRGB(45, 32, 33),
+        SurfaceDark = Color3.fromRGB(18, 13, 13), Accent = Color3.fromRGB(220, 70, 80),
+        AccentHover = Color3.fromRGB(235, 110, 118), Text = Color3.fromRGB(248, 240, 240),
+        TextMuted = Color3.fromRGB(180, 155, 156), Border = Color3.fromRGB(70, 45, 47),
+        CodeBackground = Color3.fromRGB(20, 14, 15)
+    },
+    ["Light"] = {
+        Background = Color3.fromRGB(245, 245, 247), Surface = Color3.fromRGB(255, 255, 255),
+        SurfaceDark = Color3.fromRGB(230, 230, 233), Accent = Color3.fromRGB(37, 99, 235),
+        AccentHover = Color3.fromRGB(59, 130, 246), Text = Color3.fromRGB(24, 24, 27),
+        TextMuted = Color3.fromRGB(113, 113, 122), Border = Color3.fromRGB(212, 212, 216),
+        CodeBackground = Color3.fromRGB(238, 238, 240)
+    }
+}
+ThemeData.PresetOrder = {
+    "Dark (Default)", "Midnight Purple", "Solarized Dusk", "Nord", "Forest", "Crimson", "Light"
 }
 
 local function create(className, props, children)
@@ -167,72 +894,109 @@ local function tween(obj, props, time)
     ):Play()
 end
 
+-- Color <-> hex helpers, theme (de)serialization, live re-skinning. Grouped into one table
+-- (rather than five separate top-level locals) for the same local-count reason as ThemeData.
+local ThemeUtil = {}
+
+function ThemeUtil.ToHex(c)
+    return string.format("#%02X%02X%02X", math.floor(c.R * 255 + 0.5), math.floor(c.G * 255 + 0.5), math.floor(c.B * 255 + 0.5))
+end
+
+function ThemeUtil.FromHex(hex)
+    hex = tostring(hex):gsub("^#", "")
+    local r, g, b = hex:match("^(%x%x)(%x%x)(%x%x)$")
+    if not r then return nil end
+    return Color3.fromRGB(tonumber(r, 16), tonumber(g, 16), tonumber(b, 16))
+end
+
+-- Converts a palette of Color3 values into a plain hex-string table (JSON-safe).
+function ThemeUtil.ToJSON(name, palette)
+    local out = {Name = name}
+    for _, key in ipairs(ThemeData.Keys) do
+        if palette[key] then out[key] = ThemeUtil.ToHex(palette[key]) end
+    end
+    return out
+end
+
+-- Converts a JSON-decoded hex-string table back into a Color3 palette. Returns nil, err on failure.
+function ThemeUtil.FromJSON(t)
+    if type(t) ~= "table" then return nil, "not a table" end
+    local palette = {}
+    for _, key in ipairs(ThemeData.Keys) do
+        local hex = t[key]
+        if not hex then return nil, "missing key: " .. key end
+        local c = ThemeUtil.FromHex(hex)
+        if not c then return nil, "invalid color for " .. key .. ": " .. tostring(hex) end
+        palette[key] = c
+    end
+    return palette
+end
+
+-- Finds which Theme[] field currently equals the given color (best-effort).
+function ThemeUtil.FieldForColor(color)
+    if typeof(color) ~= "Color3" then return nil end
+    for _, key in ipairs(ThemeData.Keys) do
+        if Theme[key] == color then return key end
+    end
+    return nil
+end
+
+-- applyHover captures WHICH theme field a color came from (rather than baking in the raw
+-- Color3), so buttons keep tracking the live theme after a runtime theme switch. Colors that
+-- don't map to a theme field (e.g. status reds/greens) still work exactly as before.
 local function applyHover(btn, normalColor, hoverColor)
-    btn.MouseEnter:Connect(function() 
-        tween(btn, {BackgroundColor3 = hoverColor}, 0.15) 
+    local normalField = ThemeUtil.FieldForColor(normalColor)
+    local hoverField = ThemeUtil.FieldForColor(hoverColor)
+    btn.MouseEnter:Connect(function()
+        tween(btn, {BackgroundColor3 = (hoverField and Theme[hoverField]) or hoverColor}, 0.15)
     end)
-    btn.MouseLeave:Connect(function() 
-        tween(btn, {BackgroundColor3 = normalColor}, 0.15) 
+    btn.MouseLeave:Connect(function()
+        tween(btn, {BackgroundColor3 = (normalField and Theme[normalField]) or normalColor}, 0.15)
     end)
 end
 
--- Frames registered here get automatically re-clamped inside the screen
--- whenever the viewport size changes (e.g. mobile rotation, window resize).
-local ScreenGui -- forward declaration; assigned below, referenced by clamp helpers above its assignment
-local clampableFrames = {}
+-- Re-skins every existing UI element whose color currently matches one of the OLD theme's
+-- values, then swaps Theme in place so all future UI creation uses the new palette too.
+-- This works without tagging every single Instance because the whole UI is built from
+-- only ~9 distinct theme colors to begin with.
+function ThemeUtil.Apply(newPalette)
+    if not ScreenGui then return end
+    local oldValues = {}
+    for _, key in ipairs(ThemeData.Keys) do oldValues[key] = Theme[key] end
 
-local function clampFrameToScreen(frame, margin)
-    margin = margin or 0
-    local screen = ScreenGui.AbsoluteSize
-    if screen.X <= 0 or screen.Y <= 0 then return end
+    -- old Color3 -> field name, keyed by a rounded string so float equality is reliable
+    local function colorKey(c) return string.format("%d,%d,%d", math.floor(c.R*255+0.5), math.floor(c.G*255+0.5), math.floor(c.B*255+0.5)) end
+    local reverse = {}
+    for key, c in pairs(oldValues) do reverse[colorKey(c)] = key end
 
-    local availW = math.max(50, screen.X - margin * 2)
-    local availH = math.max(50, screen.Y - margin * 2)
-
-    -- Shrink the frame first if it no longer fits the screen at all (mobile-safe).
-    local size = frame.Size
-    if size.X.Scale == 0 and frame.AbsoluteSize.X > availW then
-        size = UDim2.new(size.X.Scale, availW, size.Y.Scale, size.Y.Offset)
-        frame.Size = size
+    local function restyle(inst)
+        for _, propName in ipairs(ThemeData.ColorProps) do
+            local ok, val = pcall(function() return inst[propName] end)
+            if ok and typeof(val) == "Color3" then
+                local fieldName = reverse[colorKey(val)]
+                if fieldName and newPalette[fieldName] then
+                    pcall(function() inst[propName] = newPalette[fieldName] end)
+                end
+            end
+        end
     end
-    if size.Y.Scale == 0 and frame.AbsoluteSize.Y > availH then
-        size = UDim2.new(size.X.Scale, size.X.Offset, size.Y.Scale, availH)
-        frame.Size = size
+
+    restyle(ScreenGui)
+    for _, inst in ipairs(ScreenGui:GetDescendants()) do
+        restyle(inst)
     end
 
-    -- Then make sure its position keeps it fully on-screen.
-    local absPos = frame.AbsolutePosition
-    local absSize = frame.AbsoluteSize
-    local maxX = math.max(margin, screen.X - margin - absSize.X)
-    local maxY = math.max(margin, screen.Y - margin - absSize.Y)
-    local targetX = math.clamp(absPos.X, margin, maxX)
-    local targetY = math.clamp(absPos.Y, margin, maxY)
-    local dx, dy = targetX - absPos.X, targetY - absPos.Y
-    if math.abs(dx) > 0.5 or math.abs(dy) > 0.5 then
-        local pos = frame.Position
-        frame.Position = UDim2.new(pos.X.Scale, pos.X.Offset + dx, pos.Y.Scale, pos.Y.Offset + dy)
+    for _, key in ipairs(ThemeData.Keys) do
+        if newPalette[key] then Theme[key] = newPalette[key] end
     end
-end
-
-local function registerClampable(frame)
-    table.insert(clampableFrames, frame)
-end
-
-local function isPointerInputType(inputType)
-    return inputType == Enum.UserInputType.MouseMovement or inputType == Enum.UserInputType.Touch
-end
-
-local function isPointerActionType(inputType)
-    return inputType == Enum.UserInputType.MouseButton1 or inputType == Enum.UserInputType.Touch
 end
 
 local function makeDraggable(frame, handle)
     handle = handle or frame
-    registerClampable(frame)
     local dragging, dragInput, dragStart, startPos
     
     handle.InputBegan:Connect(function(input)
-        if isPointerActionType(input.UserInputType) then
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = true
             dragStart = input.Position
             startPos = frame.Position
@@ -245,7 +1009,7 @@ local function makeDraggable(frame, handle)
     end)
     
     handle.InputChanged:Connect(function(input)
-        if isPointerInputType(input.UserInputType) then 
+        if input.UserInputType == Enum.UserInputType.MouseMovement then 
             dragInput = input 
         end
     end)
@@ -259,16 +1023,14 @@ local function makeDraggable(frame, handle)
                 startPos.Y.Scale, 
                 startPos.Y.Offset + delta.Y
             )
-            clampFrameToScreen(frame)
         end
     end)
 end
 
 local function makeResizable(frame, minSize)
     minSize = minSize or Vector2.new(200, 200)
-    registerClampable(frame)
     local resizeHandle = create("TextButton", {
-        Size = UDim2.new(0, 20, 0, 20), Position = UDim2.new(1, -20, 1, -20),
+        Size = UDim2.new(0, 15, 0, 15), Position = UDim2.new(1, -15, 1, -15),
         BackgroundTransparency = 1, Text = "↘", TextColor3 = Theme.TextMuted,
         TextSize = 14, ZIndex = (frame.ZIndex or 1) + 5, Parent = frame
     })
@@ -276,32 +1038,21 @@ local function makeResizable(frame, minSize)
     local dragStart = nil
     local startSize = nil
     
-    resizeHandle.InputBegan:Connect(function(input)
-        if isPointerActionType(input.UserInputType) then
-            dragging = true
-            dragStart = input.Position
-            startSize = frame.AbsoluteSize
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
-        end
+    resizeHandle.MouseButton1Down:Connect(function()
+        dragging = true
+        dragStart = UserInputService:GetMouseLocation()
+        startSize = frame.AbsoluteSize
     end)
     UserInputService.InputChanged:Connect(function(input)
-        if dragging and isPointerInputType(input.UserInputType) then
-            local delta = input.Position - dragStart
-            local screen = ScreenGui.AbsoluteSize
-            -- Cap the resize to whatever screen space is actually available (mobile-safe).
-            local maxWidth = math.max(minSize.X, screen.X - frame.AbsolutePosition.X - 4)
-            local maxHeight = math.max(minSize.Y, screen.Y - frame.AbsolutePosition.Y - 4)
-            local newWidth = math.clamp(startSize.X + delta.X, math.min(minSize.X, screen.X - 8), maxWidth)
-            local newHeight = math.clamp(startSize.Y + delta.Y, math.min(minSize.Y, screen.Y - 8), maxHeight)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = UserInputService:GetMouseLocation() - dragStart
+            local newWidth = math.max(minSize.X, startSize.X + delta.X)
+            local newHeight = math.max(minSize.Y, startSize.Y + delta.Y)
             frame.Size = UDim2.new(0, newWidth, 0, newHeight)
         end
     end)
     UserInputService.InputEnded:Connect(function(input)
-        if isPointerActionType(input.UserInputType) then
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = false
         end
     end)
@@ -451,33 +1202,6 @@ local MainIDEFrame = create("Frame", {
 MainIDEFrame.Parent = ScreenGui
 makeResizable(MainIDEFrame, Vector2.new(600, 400))
 
--- Keep the whole window on-screen (and shrunk to fit) on small/mobile screens,
--- both on first load and whenever the viewport size changes (rotation, resize, etc).
-local function fitMainIDEFrameToScreen()
-    local screen = ScreenGui.AbsoluteSize
-    if screen.X <= 0 or screen.Y <= 0 then return end
-
-    local margin = 10
-    local targetW = math.min(850, math.max(280, screen.X - margin * 2))
-    local targetH = math.min(550, math.max(220, screen.Y - margin * 2))
-
-    if MainIDEFrame.Size.X.Offset > screen.X - margin * 2 or MainIDEFrame.Size.Y.Offset > screen.Y - margin * 2 then
-        MainIDEFrame.Size = UDim2.new(0, targetW, 0, targetH)
-        MainIDEFrame.Position = UDim2.new(0.5, -targetW / 2, 0.5, -targetH / 2)
-    end
-
-    for _, f in ipairs(clampableFrames) do
-        pcall(clampFrameToScreen, f)
-    end
-end
-
-fitMainIDEFrameToScreen()
-local camera = workspace.CurrentCamera
-if camera then
-    camera:GetPropertyChangedSignal("ViewportSize"):Connect(fitMainIDEFrameToScreen)
-end
-ScreenGui:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitMainIDEFrameToScreen)
-
 
 -- Top Bar
 local TopBar = create("Frame", {
@@ -539,6 +1263,14 @@ MinimizeBtn.MouseButton1Click:Connect(function()
     end) 
 end)
 
+local ThemeToggleBtn = create("TextButton", {
+    Size = UDim2.new(0, 30, 0, 30), Position = UDim2.new(1, -155, 0.5, -15), 
+    BackgroundColor3 = Theme.Surface, Text = "🎨", TextColor3 = Theme.Text, 
+    Font = Enum.Font.Gotham, TextSize = 14
+}, {create("UICorner", {CornerRadius = UDim.new(0, 6)})})
+ThemeToggleBtn.Parent = TopBar
+applyHover(ThemeToggleBtn, Theme.Surface, Theme.Accent)
+
 local ExplorerToggleBtn = create("TextButton", {
     Size = UDim2.new(0, 30, 0, 30), Position = UDim2.new(1, -115, 0.5, -15), 
     BackgroundColor3 = Theme.Surface, Text = "🔍", TextColor3 = Theme.Text, 
@@ -553,33 +1285,9 @@ ToggleBtn.MouseButton1Click:Connect(function()
     tween(MainIDEFrame, {Size = UDim2.new(0, 850, 0, 550)}, 0.3) 
 end)
 
-local FileExplorerToggleBtn = create("TextButton", {
-    Size = UDim2.new(0, 30, 0, 30), 
-    Position = UDim2.new(0, 125, 0.5, -15), 
-    BackgroundColor3 = Theme.Surface, 
-    Text = "🗂", 
-    TextColor3 = Theme.Text, 
-    Font = Enum.Font.Gotham, 
-    TextSize = 14
-}, {create("UICorner", {CornerRadius = UDim.new(0, 6)})})
-FileExplorerToggleBtn.Parent = TopBar
-applyHover(FileExplorerToggleBtn, Theme.Surface, Theme.Border)
-
-local SidebarToggleBtn = create("TextButton", {
-    Size = UDim2.new(0, 30, 0, 30), 
-    Position = UDim2.new(0, 165, 0.5, -15), 
-    BackgroundColor3 = Theme.Surface, 
-    Text = "💬", 
-    TextColor3 = Theme.Text, 
-    Font = Enum.Font.Gotham, 
-    TextSize = 14
-}, {create("UICorner", {CornerRadius = UDim.new(0, 6)})})
-SidebarToggleBtn.Parent = TopBar
-applyHover(SidebarToggleBtn, Theme.Surface, Theme.Border)
-
 local ConsoleToggleBtn = create("TextButton", {
     Size = UDim2.new(0, 100, 0, 30), 
-    Position = UDim2.new(0, 205, 0.5, -15), 
+    Position = UDim2.new(0, 170, 0.5, -15), 
     BackgroundColor3 = Theme.Surface, 
     Text = "Toggle Console", 
     TextColor3 = Theme.TextMuted, 
@@ -593,7 +1301,7 @@ applyHover(ConsoleToggleBtn, Theme.Surface, Theme.Border)
 
 local PluginsBtn = create("TextButton", {
     Size = UDim2.new(0, 80, 0, 30), 
-    Position = UDim2.new(0, 315, 0.5, -15), 
+    Position = UDim2.new(0, 280, 0.5, -15), 
     BackgroundColor3 = Theme.Surface, 
     Text = "Plugins", 
     TextColor3 = Theme.TextMuted, 
@@ -609,7 +1317,7 @@ applyHover(PluginsBtn, Theme.Surface, Theme.Border)
 -- (lists the panel-toggle buttons that plugins register via api:CreatePanel()).
 local PluginUIBtn = create("TextButton", {
     Size = UDim2.new(0, 26, 0, 30), 
-    Position = UDim2.new(0, 401, 0.5, -15), 
+    Position = UDim2.new(0, 366, 0.5, -15), 
     BackgroundColor3 = Theme.Surface, 
     Text = "v", 
     TextColor3 = Theme.TextMuted, 
@@ -682,7 +1390,7 @@ PluginsTopBar.Parent = PluginsWindow
 
 create("TextLabel", {
     Text = "[P] Plugins",
-    Size = UDim2.new(1, -230, 1, 0),
+    Size = UDim2.new(1, -304, 1, 0),
     Position = UDim2.new(0, 12, 0, 0),
     BackgroundTransparency = 1,
     TextColor3 = Theme.Text,
@@ -690,6 +1398,18 @@ create("TextLabel", {
     TextSize = 14,
     TextXAlignment = Enum.TextXAlignment.Left
 }).Parent = PluginsTopBar
+
+local PluginDocsBtn = create("TextButton", {
+    Size = UDim2.new(0, 62, 0, 24),
+    Position = UDim2.new(1, -257, 0.5, -12),
+    BackgroundColor3 = Theme.Surface,
+    Text = "📘 Docs",
+    TextColor3 = Theme.Text,
+    Font = Enum.Font.GothamMedium,
+    TextSize = 11
+}, {create("UICorner", {CornerRadius = UDim.new(0, 5)})})
+PluginDocsBtn.Parent = PluginsTopBar
+applyHover(PluginDocsBtn, Theme.Surface, Theme.Border)
 
 local AddPluginBtn = create("TextButton", {
     Size = UDim2.new(0, 68, 0, 24),
@@ -947,6 +1667,126 @@ PluginsWindow.Parent = ScreenGui
 makeDraggable(PluginsWindow, PluginsTopBar)
 makeResizable(PluginsWindow, Vector2.new(280, 300))
 
+-- === Plugin API Docs viewer ===
+-- A small markdown renderer tailored to PLUGIN_API_DOCS_MD: handles headers, bold/italic/
+-- strikethrough, inline code, links, blockquotes, horizontal rules, pipe tables, and (unlike
+-- the chat's parseMarkdown) fenced ```code``` blocks, since the plugin docs are full of them.
+local function escapeRichText(s)
+    return s:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;")
+end
+
+local function docsInlineMarkdown(line)
+    line = line:gsub("%*%*(.-)%*%*", "<b>%1</b>")
+    line = line:gsub("%*(.-)%*", "<i>%1</i>")
+    line = line:gsub("~~(.-)~~", "<s>%1</s>")
+    line = line:gsub("`([^`]+)`", "<font family='RobotoMono' color='#d2a8ff'>%1</font>")
+    line = line:gsub("%[(.-)%]%((.-)%)", "<u><font color='#58a6ff'>%1</font></u>")
+    return line
+end
+
+local function renderDocsMarkdown(raw)
+    local out = {}
+    local inCode = false
+    for line in (raw .. "\n"):gmatch("(.-)\n") do
+        if line:match("^%s*```") then
+            inCode = not inCode
+        elseif inCode then
+            local e = escapeRichText(line)
+            table.insert(out, "    <font family='RobotoMono' color='#a5d6ff' size='12'>" .. (e ~= "" and e or " ") .. "</font>")
+        else
+            local e = escapeRichText(line)
+            local h1 = e:match("^# (.+)$")
+            local h2 = e:match("^## (.+)$")
+            local h3 = e:match("^### (.+)$")
+            if h1 then
+                table.insert(out, "<font size='22'><b>" .. docsInlineMarkdown(h1) .. "</b></font>")
+            elseif h2 then
+                table.insert(out, "<font size='18'><b>" .. docsInlineMarkdown(h2) .. "</b></font>")
+            elseif h3 then
+                table.insert(out, "<font size='15'><b>" .. docsInlineMarkdown(h3) .. "</b></font>")
+            elseif e:match("^%-%-%-+$") then
+                table.insert(out, "――――――――――――――――――――――――――――――――")
+            elseif e:match("^&gt;%s?") then
+                table.insert(out, "<i>" .. docsInlineMarkdown(e:gsub("^&gt;%s?", "")) .. "</i>")
+            elseif e:match("^%s*|.-|%s*$") then
+                if e:match("^[%s|:%-]+$") then
+                    -- separator row (|---|---|) — skip entirely
+                else
+                    local cells = {}
+                    for cell in e:gmatch("|([^|]*)") do
+                        table.insert(cells, cell:match("^%s*(.-)%s*$"))
+                    end
+                    if cells[1] == "" then table.remove(cells, 1) end
+                    if cells[#cells] == "" then table.remove(cells, #cells) end
+                    table.insert(out, docsInlineMarkdown(table.concat(cells, "   |   ")))
+                end
+            else
+                table.insert(out, docsInlineMarkdown(e:gsub("^%- ", "• ")))
+            end
+        end
+    end
+    return table.concat(out, "\n")
+end
+
+local PluginDocsWindow = create("Frame", {
+    Name = "PluginDocsWindow", Size = UDim2.new(0, 560, 0, 560),
+    Position = UDim2.new(0.5, -280, 0.5, -280), BackgroundColor3 = Theme.Background,
+    Visible = false, ZIndex = 60
+}, {
+    create("UICorner", {CornerRadius = UDim.new(0, 10)}),
+    create("UIStroke", {Color = Theme.Border, Thickness = 1})
+})
+PluginDocsWindow.Parent = ScreenGui
+
+local PluginDocsTopBar = create("Frame", {
+    Size = UDim2.new(1, 0, 0, 35), BackgroundColor3 = Theme.SurfaceDark, BorderSizePixel = 0, ZIndex = 60
+}, {
+    create("UICorner", {CornerRadius = UDim.new(0, 10)}),
+    create("Frame", {Size = UDim2.new(1, 0, 0, 10), Position = UDim2.new(0, 0, 1, -10), BackgroundColor3 = Theme.SurfaceDark, BorderSizePixel = 0, ZIndex = 60})
+})
+PluginDocsTopBar.Parent = PluginDocsWindow
+makeDraggable(PluginDocsWindow, PluginDocsTopBar)
+
+create("TextLabel", {
+    Text = "📘 Plugin API Docs", Size = UDim2.new(1, -40, 1, 0), Position = UDim2.new(0, 15, 0, 0),
+    BackgroundTransparency = 1, TextColor3 = Theme.Text, Font = Enum.Font.GothamBold, TextSize = 14,
+    TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 60, Parent = PluginDocsTopBar
+})
+
+local PluginDocsCloseBtn = create("TextButton", {
+    Size = UDim2.new(0, 35, 0, 35), Position = UDim2.new(1, -35, 0, 0), BackgroundTransparency = 1,
+    Text = "X", TextColor3 = Theme.TextMuted, Font = Enum.Font.GothamBold, TextSize = 14, ZIndex = 60, Parent = PluginDocsTopBar
+})
+PluginDocsCloseBtn.MouseButton1Click:Connect(function() PluginDocsWindow.Visible = false end)
+PluginDocsBtn.MouseButton1Click:Connect(function() PluginDocsWindow.Visible = true end)
+
+local PluginDocsScroll = create("ScrollingFrame", {
+    Size = UDim2.new(1, 0, 1, -35), Position = UDim2.new(0, 0, 0, 35),
+    BackgroundTransparency = 1, ScrollBarThickness = 5, ScrollBarImageColor3 = Theme.Border,
+    CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y, ZIndex = 60
+}, {
+    create("UIPadding", {PaddingTop = UDim.new(0, 14), PaddingBottom = UDim.new(0, 20), PaddingLeft = UDim.new(0, 16), PaddingRight = UDim.new(0, 16)})
+})
+PluginDocsScroll.Parent = PluginDocsWindow
+
+create("TextLabel", {
+    Text = renderDocsMarkdown(PLUGIN_API_DOCS_MD),
+    Size = UDim2.new(1, 0, 0, 0),
+    AutomaticSize = Enum.AutomaticSize.Y,
+    BackgroundTransparency = 1,
+    RichText = true,
+    TextColor3 = Theme.Text,
+    Font = Enum.Font.Gotham,
+    TextSize = 13,
+    TextWrapped = true,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextYAlignment = Enum.TextYAlignment.Top,
+    LineHeight = 1.15,
+    ZIndex = 60
+}).Parent = PluginDocsScroll
+
+makeResizable(PluginDocsWindow, Vector2.new(360, 320))
+
 -- === New File modal (multi-file sessions) ===
 local NewFileWindow = create("Frame", {
     Size = UDim2.new(0, 320, 0, 150),
@@ -1077,11 +1917,8 @@ local MiddleContent = create("Frame", {
 })
 MiddleContent.Parent = MainIDEFrame
 
-local consoleHeight = 200
-local MIN_CONSOLE_HEIGHT = 100
-
 local ConsoleFrame = create("Frame", {
-    Size = UDim2.new(1, 0, 0, consoleHeight), 
+    Size = UDim2.new(1, 0, 0, 200), 
     Position = UDim2.new(0, 0, 1, 0), 
     BackgroundColor3 = Theme.SurfaceDark, 
     BorderSizePixel = 0, 
@@ -1094,38 +1931,14 @@ local ConsoleFrame = create("Frame", {
 })
 ConsoleFrame.Parent = MainIDEFrame
 
--- Drag strip straddling the console's top border, so users can resize its height.
-local ConsoleResizeHandle = create("Frame", {
-    Name = "ConsoleResizeHandle",
-    Size = UDim2.new(1, 0, 0, 8),
-    Position = UDim2.new(0, 0, 0, -4),
-    BackgroundTransparency = 1,
-    Active = true,
-    ZIndex = 5
-})
-ConsoleResizeHandle.Parent = ConsoleFrame
-
 local consoleVisible = false
-
-local function maxConsoleHeight()
-    return math.max(MIN_CONSOLE_HEIGHT, MainIDEFrame.AbsoluteSize.Y - 40 - 150)
-end
-
-local function applyConsoleHeight()
-    ConsoleFrame.Size = UDim2.new(1, 0, 0, consoleHeight)
-    if consoleVisible then
-        ConsoleFrame.Position = UDim2.new(0, 0, 1, -consoleHeight)
-        MiddleContent.Size = UDim2.new(1, 0, 1, -(40 + consoleHeight))
-    end
-end
-
 ConsoleToggleBtn.MouseButton1Click:Connect(function()
     consoleVisible = not consoleVisible
     if consoleVisible then
         ConsoleToggleBtn.TextColor3 = Theme.Text
         ConsoleFrame.Visible = true
-        tween(MiddleContent, {Size = UDim2.new(1, 0, 1, -(40 + consoleHeight))}, 0.3)
-        tween(ConsoleFrame, {Position = UDim2.new(0, 0, 1, -consoleHeight)}, 0.3)
+        tween(MiddleContent, {Size = UDim2.new(1, 0, 1, -240)}, 0.3)
+        tween(ConsoleFrame, {Position = UDim2.new(0, 0, 1, -200)}, 0.3)
     else
         ConsoleToggleBtn.TextColor3 = Theme.TextMuted
         tween(MiddleContent, {Size = UDim2.new(1, 0, 1, -40)}, 0.3)
@@ -1138,58 +1951,16 @@ ConsoleToggleBtn.MouseButton1Click:Connect(function()
     end
 end)
 
-do
-    local dragging = false
-    local lastY = nil
-    ConsoleResizeHandle.InputBegan:Connect(function(input)
-        if isPointerActionType(input.UserInputType) and consoleVisible then
-            dragging = true
-            lastY = input.Position.Y
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then dragging = false end
-            end)
-        end
-    end)
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and isPointerInputType(input.UserInputType) then
-            local y = input.Position.Y
-            local dy = y - lastY
-            lastY = y
-            consoleHeight = math.clamp(consoleHeight - dy, MIN_CONSOLE_HEIGHT, maxConsoleHeight())
-            applyConsoleHeight()
-        end
-    end)
-    UserInputService.InputEnded:Connect(function(input)
-        if isPointerActionType(input.UserInputType) then dragging = false end
-    end)
-end
-
-local splitRatio = 0.6 -- fraction of MiddleContent's width given to the editor; rest goes to Chat/Sessions
-local MIN_SPLIT_RATIO, MAX_SPLIT_RATIO = 0.3, 0.75
-
 local EditorContainer = create("Frame", {
-    Size = UDim2.new(splitRatio, -3, 1, 0), 
+    Size = UDim2.new(0.6, 0, 1, 0), 
     BackgroundColor3 = Theme.Background, 
     BorderSizePixel = 0
 })
 EditorContainer.Parent = MiddleContent
 
--- Drag divider between the editor and the Chat/Sessions sidebar.
-local SplitDivider = create("Frame", {
-    Name = "EditorSidebarDivider",
-    Size = UDim2.new(0, 6, 1, 0),
-    Position = UDim2.new(splitRatio, -3, 0, 0),
-    BackgroundColor3 = Theme.Border,
-    BorderSizePixel = 0,
-    Active = true,
-    ZIndex = 5
-})
-SplitDivider.Parent = MiddleContent
-applyHover(SplitDivider, Theme.Border, Theme.Accent)
-
 local SidebarContainer = create("Frame", {
-    Size = UDim2.new(1 - splitRatio, -3, 1, 0), 
-    Position = UDim2.new(splitRatio, 3, 0, 0), 
+    Size = UDim2.new(0.4, 0, 1, 0), 
+    Position = UDim2.new(0.6, 0, 0, 0), 
     BackgroundColor3 = Theme.SurfaceDark, 
     BorderSizePixel = 0
 }, {
@@ -1199,31 +1970,6 @@ local SidebarContainer = create("Frame", {
     })
 })
 SidebarContainer.Parent = MiddleContent
-
-local sidebarHidden = false
-
-local function applySplitRatio()
-    if sidebarHidden then
-        EditorContainer.Size = UDim2.new(1, 0, 1, 0)
-        SplitDivider.Visible = false
-        SplitDivider.Active = false
-        SidebarContainer.Visible = false
-        return
-    end
-    SplitDivider.Visible = true
-    SplitDivider.Active = true
-    SidebarContainer.Visible = true
-    EditorContainer.Size = UDim2.new(splitRatio, -3, 1, 0)
-    SplitDivider.Position = UDim2.new(splitRatio, -3, 0, 0)
-    SidebarContainer.Size = UDim2.new(1 - splitRatio, -3, 1, 0)
-    SidebarContainer.Position = UDim2.new(splitRatio, 3, 0, 0)
-end
-
-SidebarToggleBtn.MouseButton1Click:Connect(function()
-    sidebarHidden = not sidebarHidden
-    applySplitRatio()
-    tween(SidebarToggleBtn, {BackgroundColor3 = sidebarHidden and Theme.Accent or Theme.Surface}, 0.15)
-end)
 
 -- === CODE EDITOR MODULE ===
 local EditorTopBar = create("Frame", {
@@ -1279,66 +2025,40 @@ local PluginButtonsRow = create("Frame", {
 })
 PluginButtonsRow.Parent = EditorTopBar
 
--- === File Explorer Panel (VS Code style, left sidebar of the editor) ===
-local FILE_EXPLORER_WIDTH = 170
-local MIN_EXPLORER_WIDTH, MAX_EXPLORER_WIDTH = 110, 400
-
-local FileExplorerPanel = create("Frame", {
-    Size = UDim2.new(0, FILE_EXPLORER_WIDTH, 1, -35),
+-- === File Tabs Bar (multi-file sessions, VS Code style) ===
+local FileTabsBar = create("Frame", {
+    Size = UDim2.new(1, 0, 0, 30),
     Position = UDim2.new(0, 0, 0, 35),
     BackgroundColor3 = Theme.SurfaceDark,
     BorderSizePixel = 0
 }, {
-    create("Frame", {
-        Size = UDim2.new(0, 1, 1, 0),
-        Position = UDim2.new(1, -1, 0, 0),
-        BackgroundColor3 = Theme.Border
-    })
+    create("Frame", {Size = UDim2.new(1, 0, 0, 1), Position = UDim2.new(0, 0, 1, -1), BackgroundColor3 = Theme.Border})
 })
-FileExplorerPanel.Parent = EditorContainer
+FileTabsBar.Parent = EditorContainer
 
--- Drag strip straddling the explorer's right border, so users can resize its width independently.
-local ExplorerResizeHandle = create("Frame", {
-    Name = "ExplorerResizeHandle",
-    Size = UDim2.new(0, 8, 1, 0),
-    Position = UDim2.new(1, -4, 0, 0),
+local FileTabsScroll = create("ScrollingFrame", {
+    Size = UDim2.new(1, -32, 1, 0),
     BackgroundTransparency = 1,
-    Active = true,
-    ZIndex = 5
-})
-ExplorerResizeHandle.Parent = FileExplorerPanel
-
-local FileExplorerHeader = create("Frame", {
-    Size = UDim2.new(1, 0, 0, 28),
-    BackgroundTransparency = 1
+    ScrollingDirection = Enum.ScrollingDirection.X,
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    AutomaticCanvasSize = Enum.AutomaticSize.X,
+    ScrollBarThickness = 3,
+    ScrollBarImageColor3 = Theme.Border
 }, {
-    create("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 6)})
+    create("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 2)})
 })
-FileExplorerHeader.Parent = FileExplorerPanel
-
-create("TextLabel", {
-    Name = "FileExplorerTitle",
-    Size = UDim2.new(1, -22, 1, 0),
-    BackgroundTransparency = 1,
-    Text = "FILES",
-    TextColor3 = Theme.TextMuted,
-    Font = Enum.Font.GothamBold,
-    TextSize = 11,
-    TextXAlignment = Enum.TextXAlignment.Left
-}).Parent = FileExplorerHeader
+FileTabsScroll.Parent = FileTabsBar
 
 local NewFileBtn = create("TextButton", {
-    Name = "NewFileButton",
-    Size = UDim2.new(0, 20, 0, 20),
-    AnchorPoint = Vector2.new(1, 0.5),
-    Position = UDim2.new(1, 0, 0.5, 0),
+    Size = UDim2.new(0, 30, 1, 0),
+    Position = UDim2.new(1, -30, 0, 0),
     BackgroundTransparency = 1,
     Text = "+",
     TextColor3 = Theme.TextMuted,
     Font = Enum.Font.GothamBold,
     TextSize = 16
 })
-NewFileBtn.Parent = FileExplorerHeader
+NewFileBtn.Parent = FileTabsBar
 applyHover(NewFileBtn, Theme.SurfaceDark, Theme.Surface)
 NewFileBtn.MouseButton1Click:Connect(function()
     NewFileNameBox.Text = ""
@@ -1347,25 +2067,10 @@ NewFileBtn.MouseButton1Click:Connect(function()
     NewFileNameBox:CaptureFocus()
 end)
 
-local FileListScroll = create("ScrollingFrame", {
-    Name = "FileListScroll",
-    Size = UDim2.new(1, 0, 1, -28),
-    Position = UDim2.new(0, 0, 0, 28),
-    BackgroundTransparency = 1,
-    ScrollingDirection = Enum.ScrollingDirection.Y,
-    CanvasSize = UDim2.new(0, 0, 0, 0),
-    AutomaticCanvasSize = Enum.AutomaticSize.Y,
-    ScrollBarThickness = 3,
-    ScrollBarImageColor3 = Theme.Border
-}, {
-    create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder})
-})
-FileListScroll.Parent = FileExplorerPanel
-
 -- Gutter (line numbers)
 local GutterFrame = create("Frame", {
-    Size = UDim2.new(0, 40, 1, -35),
-    Position = UDim2.new(0, FILE_EXPLORER_WIDTH, 0, 35),
+    Size = UDim2.new(0, 40, 1, -65),
+    Position = UDim2.new(0, 0, 0, 65),
     BackgroundColor3 = Theme.SurfaceDark,
     BorderSizePixel = 0,
     ZIndex = 2,
@@ -1387,12 +2092,12 @@ local GutterScroll = create("ScrollingFrame", {
 GutterScroll.Parent = GutterFrame
 
 local EditorScroll = create("ScrollingFrame", {
-    Size = UDim2.new(1, -(FILE_EXPLORER_WIDTH + 40), 1, -35),
-    Position = UDim2.new(0, FILE_EXPLORER_WIDTH + 40, 0, 35),
-    BackgroundTransparency = 1,
-    CanvasSize = UDim2.new(0, 0, 0, 0),
-    AutomaticCanvasSize = Enum.AutomaticSize.Y,
-    ScrollBarThickness = 6,
+    Size = UDim2.new(1, -40, 1, -65), 
+    Position = UDim2.new(0, 40, 0, 65), 
+    BackgroundTransparency = 1, 
+    CanvasSize = UDim2.new(0, 0, 0, 0), 
+    AutomaticCanvasSize = Enum.AutomaticSize.Y, 
+    ScrollBarThickness = 6, 
     ScrollBarImageColor3 = Theme.Border
 })
 EditorScroll.Parent = EditorContainer
@@ -1401,55 +2106,6 @@ EditorScroll.Parent = EditorContainer
 EditorScroll:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
     GutterScroll.CanvasPosition = Vector2.new(0, EditorScroll.CanvasPosition.Y)
 end)
-
-local explorerHidden = false
-
-local function applyExplorerWidth()
-    if explorerHidden then
-        FileExplorerPanel.Visible = false
-        GutterFrame.Position = UDim2.new(0, 0, 0, 35)
-        EditorScroll.Size = UDim2.new(1, -40, 1, -35)
-        EditorScroll.Position = UDim2.new(0, 40, 0, 35)
-        return
-    end
-    FileExplorerPanel.Visible = true
-    FileExplorerPanel.Size = UDim2.new(0, FILE_EXPLORER_WIDTH, 1, -35)
-    GutterFrame.Position = UDim2.new(0, FILE_EXPLORER_WIDTH, 0, 35)
-    EditorScroll.Size = UDim2.new(1, -(FILE_EXPLORER_WIDTH + 40), 1, -35)
-    EditorScroll.Position = UDim2.new(0, FILE_EXPLORER_WIDTH + 40, 0, 35)
-end
-
-FileExplorerToggleBtn.MouseButton1Click:Connect(function()
-    explorerHidden = not explorerHidden
-    applyExplorerWidth()
-    tween(FileExplorerToggleBtn, {BackgroundColor3 = explorerHidden and Theme.Accent or Theme.Surface}, 0.15)
-end)
-
-do
-    local dragging = false
-    local lastX = nil
-    ExplorerResizeHandle.InputBegan:Connect(function(input)
-        if isPointerActionType(input.UserInputType) then
-            dragging = true
-            lastX = input.Position.X
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then dragging = false end
-            end)
-        end
-    end)
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and isPointerInputType(input.UserInputType) then
-            local x = input.Position.X
-            local dx = x - lastX
-            lastX = x
-            FILE_EXPLORER_WIDTH = math.clamp(FILE_EXPLORER_WIDTH + dx, MIN_EXPLORER_WIDTH, MAX_EXPLORER_WIDTH)
-            applyExplorerWidth()
-        end
-    end)
-    UserInputService.InputEnded:Connect(function(input)
-        if isPointerActionType(input.UserInputType) then dragging = false end
-    end)
-end
 
 sessionFiles = {{name = "Main.lua", language = "lua", content = "-- Write your Luau code here\nprint('Hello from IDE!')"}}
 activeFileIndex = 1
@@ -1516,63 +2172,62 @@ ClearCodeBtn.MouseButton1Click:Connect(function()
     CodeInput.Text = "" 
 end)
 
--- === File Explorer list implementation (VS Code style left sidebar) ===
+-- === File Tab implementations ===
 refreshFileTabsUI = function()
-    for _, c in ipairs(FileListScroll:GetChildren()) do
+    for _, c in ipairs(FileTabsScroll:GetChildren()) do
         if not c:IsA("UIListLayout") then c:Destroy() end
     end
 
     for i, f in ipairs(sessionFiles) do
         local isActive = (i == activeFileIndex)
-        local row = create("Frame", {
-            Name = "FileRow",
-            Size = UDim2.new(1, 0, 0, 28),
+        local tabBtn = create("Frame", {
+            Size = UDim2.new(0, 0, 1, 0),
+            AutomaticSize = Enum.AutomaticSize.X,
             BackgroundColor3 = isActive and Theme.Background or Theme.SurfaceDark,
             LayoutOrder = i
+        }, {
+            create("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 6)}),
+            create("UIListLayout", {
+                FillDirection = Enum.FillDirection.Horizontal,
+                SortOrder = Enum.SortOrder.LayoutOrder,
+                VerticalAlignment = Enum.VerticalAlignment.Center,
+                Padding = UDim.new(0, 6)
+            })
         })
 
-        if isActive then
-            create("Frame", {
-                Name = "ActiveIndicator",
-                Size = UDim2.new(0, 3, 1, 0),
-                BackgroundColor3 = Theme.Accent
-            }).Parent = row
-        end
-
         local openBtn = create("TextButton", {
-            Name = "FileRowLabel",
-            Size = UDim2.new(1, -30, 1, 0),
-            Position = UDim2.new(0, 10, 0, 0),
+            Size = UDim2.new(0, 0, 1, 0),
+            AutomaticSize = Enum.AutomaticSize.X,
             BackgroundTransparency = 1,
             Text = fileIcon(f.language) .. "  " .. f.name,
             TextColor3 = isActive and Theme.Text or Theme.TextMuted,
             Font = isActive and Enum.Font.GothamMedium or Enum.Font.Gotham,
-            TextSize = 12,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            TextTruncate = Enum.TextTruncate.AtEnd
+            TextSize = 12
         })
-        openBtn.Parent = row
+        openBtn.Parent = tabBtn
         openBtn.MouseButton1Click:Connect(function() openFile(i) end)
 
         if #sessionFiles > 1 then
             local closeBtn = create("TextButton", {
-                Name = "FileRowClose",
-                Size = UDim2.new(0, 20, 0, 20),
-                AnchorPoint = Vector2.new(1, 0.5),
-                Position = UDim2.new(1, -4, 0.5, 0),
+                Size = UDim2.new(0, 16, 0, 16),
                 BackgroundTransparency = 1,
                 Text = "×",
                 TextColor3 = Theme.TextMuted,
                 Font = Enum.Font.GothamBold,
                 TextSize = 13
             })
-            closeBtn.Parent = row
-            closeBtn.MouseEnter:Connect(function() closeBtn.TextColor3 = Theme.Text end)
-            closeBtn.MouseLeave:Connect(function() closeBtn.TextColor3 = Theme.TextMuted end)
+            closeBtn.Parent = tabBtn
             closeBtn.MouseButton1Click:Connect(function() deleteFile(i) end)
         end
 
-        row.Parent = FileListScroll
+        if isActive then
+            create("Frame", {
+                Size = UDim2.new(1, 0, 0, 2), Position = UDim2.new(0, 0, 1, -2),
+                BackgroundColor3 = Theme.Accent
+            }).Parent = tabBtn
+        end
+
+        tabBtn.Parent = FileTabsScroll
     end
 end
 
@@ -2012,11 +2667,10 @@ local SessionsScroll = create("ScrollingFrame", {
 })
 SessionsScroll.Parent = SessionsArea
 
-local PromptLayout = {textarea = 54, toolbar = 30, padding = 8, margin = 14, topGap = 12}
-PromptLayout.cardHeight = PromptLayout.padding + PromptLayout.textarea + PromptLayout.toolbar
-
 local ChatScroll = create("ScrollingFrame", {
-    Size = UDim2.new(1, 0, 1, -(PromptLayout.cardHeight + PromptLayout.margin + PromptLayout.topGap)), 
+    -- Bottom offset reserves room for InputFrame + SettingsBar + margins below (see their
+    -- positions further down) with a clear 15px gap so messages never touch the input box.
+    Size = UDim2.new(1, 0, 1, -137), 
     Position = UDim2.new(0, 0, 0, 30),
     BackgroundTransparency = 1, 
     ScrollBarThickness = 4, 
@@ -2037,92 +2691,58 @@ local ChatScroll = create("ScrollingFrame", {
 })
 ChatScroll.Parent = ChatArea
 
+-- Bottom bar layout (measured bottom-up so nothing can overlap):
+--  10px margin -> 24px SettingsBar -> 8px gap -> 50px InputFrame -> 15px gap -> ChatScroll
 local InputFrame = create("Frame", {
-    Size = UDim2.new(1, -20, 0, PromptLayout.cardHeight), 
-    Position = UDim2.new(0, 10, 1, -(PromptLayout.cardHeight + PromptLayout.margin)), 
-    BackgroundColor3 = Theme.SurfaceDark, 
-    BorderSizePixel = 0,
-    ClipsDescendants = true
+    Size = UDim2.new(1, -20, 0, 50), 
+    Position = UDim2.new(0, 10, 1, -92), 
+    BackgroundColor3 = Theme.Surface, 
+    BorderSizePixel = 0
 }, {
     create("UICorner", {CornerRadius = UDim.new(0, 10)}),
     create("UIStroke", {Color = Theme.Border, Thickness = 1})
 })
 InputFrame.Parent = ChatArea
 
--- Scrollable container so long/multi-line prompts stay clipped inside the
--- rounded input box instead of spilling out over the rest of the UI.
-local InputScroll = create("ScrollingFrame", {
-    Size = UDim2.new(1, -16, 0, PromptLayout.textarea),
-    Position = UDim2.new(0, 8, 0, PromptLayout.padding),
-    BackgroundTransparency = 1,
-    BorderSizePixel = 0,
-    ScrollBarThickness = 4,
-    ScrollBarImageColor3 = Theme.Border,
-    CanvasSize = UDim2.new(0, 0, 0, 0),
-    AutomaticCanvasSize = Enum.AutomaticSize.Y,
-    ClipsDescendants = true
-})
-InputScroll.Parent = InputFrame
-
 local ChatInput = create("TextBox", {
-    Size = UDim2.new(1, -6, 0, 0), 
-    Position = UDim2.new(0, 0, 0, 0), 
-    AutomaticSize = Enum.AutomaticSize.Y,
+    Size = UDim2.new(1, -62, 1, 0), 
+    Position = UDim2.new(0, 14, 0, 0), 
     BackgroundTransparency = 1, 
     Text = "", 
-    PlaceholderText = "Ask anything...", 
+    PlaceholderText = "Message AI...", 
     TextColor3 = Theme.Text, 
     PlaceholderColor3 = Theme.TextMuted, 
     Font = Enum.Font.Gotham, 
     TextSize = 13, 
-    TextWrapped = true,
-    MultiLine = true,
     TextXAlignment = Enum.TextXAlignment.Left, 
-    TextYAlignment = Enum.TextYAlignment.Top,
+    TextYAlignment = Enum.TextYAlignment.Center,
     ClearTextOnFocus = false
 })
-ChatInput.Parent = InputScroll
-
--- As the prompt wraps onto new lines, keep the newest line in view instead of
--- letting it render below the visible area of the box.
-local function scrollInputToBottom()
-    task.defer(function()
-        InputScroll.CanvasPosition = Vector2.new(0, math.max(0, InputScroll.AbsoluteCanvasSize.Y - InputScroll.AbsoluteSize.Y))
-    end)
-end
-ChatInput:GetPropertyChangedSignal("Text"):Connect(scrollInputToBottom)
-
--- Thin divider separating the textarea from the toolbar row below it.
-create("Frame", {
-    Size = UDim2.new(1, -16, 0, 1),
-    Position = UDim2.new(0, 8, 0, PromptLayout.padding + PromptLayout.textarea + 4),
-    BackgroundColor3 = Theme.Border,
-    BackgroundTransparency = 0.4,
-    BorderSizePixel = 0
-}).Parent = InputFrame
+ChatInput.Parent = InputFrame
 
 local SettingsBar = create("Frame", {
-    Size = UDim2.new(1, -16, 0, PromptLayout.toolbar - 6),
-    Position = UDim2.new(0, 8, 1, -(PromptLayout.toolbar - 2)),
+    Size = UDim2.new(1, -20, 0, 24),
+    Position = UDim2.new(0, 10, 1, -34),
     BackgroundTransparency = 1
 })
-SettingsBar.Parent = InputFrame
+SettingsBar.Parent = ChatArea
 
 local InlineModelBtn = create("TextButton", {
-    Size = UDim2.new(1, -70, 1, 0),
+    Size = UDim2.new(1, -32, 1, 0),
     Position = UDim2.new(0, 0, 0, 0),
     BackgroundTransparency = 1,
     Text = config.Model .. " ▼",
     TextColor3 = Theme.TextMuted,
     Font = Enum.Font.Gotham,
     TextSize = 11,
-    TextXAlignment = Enum.TextXAlignment.Left
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextTruncate = Enum.TextTruncate.AtEnd
 })
 InlineModelBtn.Parent = SettingsBar
 
 local ModelDropdown = create("Frame", {
-    Size = UDim2.new(1, -50, 0, 150),
-    Position = UDim2.new(0, 10, 1, -(PromptLayout.cardHeight + PromptLayout.margin + 8 + 150)),
+    Size = UDim2.new(1, -20, 0, 150),
+    Position = UDim2.new(0, 10, 1, -192),
     BackgroundColor3 = Theme.SurfaceDark,
     Visible = false,
     ZIndex = 20
@@ -2202,15 +2822,15 @@ InlineModelBtn.MouseButton1Click:Connect(function()
 end)
 
 local CogBtn = create("TextButton", {
-    Size = UDim2.new(0, 20, 0, 20),
-    Position = UDim2.new(1, -58, 0.5, -10),
+    Size = UDim2.new(0, 24, 0, 24),
+    Position = UDim2.new(1, -24, 0, 0),
     BackgroundColor3 = Theme.Surface,
     Text = "⚙️",
     TextColor3 = Theme.TextMuted,
     Font = Enum.Font.Gotham,
-    TextSize = 12
+    TextSize = 13
 }, {
-    create("UICorner", {CornerRadius = UDim.new(0, 4)})
+    create("UICorner", {CornerRadius = UDim.new(0, 6)})
 })
 CogBtn.Parent = SettingsBar
 applyHover(CogBtn, Theme.Surface, Theme.SurfaceDark)
@@ -2220,22 +2840,22 @@ CogBtn.MouseButton1Click:Connect(function()
 end)
 
 local SendBtn = create("TextButton", {
-    Size = UDim2.new(0, 24, 0, 24), 
-    Position = UDim2.new(1, -24, 0.5, -12), 
+    Size = UDim2.new(0, 34, 0, 34), 
+    Position = UDim2.new(1, -42, 0.5, -17), 
     BackgroundColor3 = Theme.Accent, 
-    Text = ">", 
+    Text = "➤", 
     TextColor3 = Theme.Text, 
     Font = Enum.Font.GothamBold, 
-    TextSize = 13
+    TextSize = 15
 }, {
-    create("UICorner", {CornerRadius = UDim.new(0, 6)})
+    create("UICorner", {CornerRadius = UDim.new(0, 8)})
 })
-SendBtn.Parent = SettingsBar
+SendBtn.Parent = InputFrame
 applyHover(SendBtn, Theme.Accent, Theme.AccentHover)
 
 local StopBtn = create("TextButton", {
-    Size = UDim2.new(0, 24, 0, 24), 
-    Position = UDim2.new(1, -24, 0.5, -12), 
+    Size = UDim2.new(0, 34, 0, 34), 
+    Position = UDim2.new(1, -42, 0.5, -17), 
     BackgroundColor3 = Color3.fromRGB(248, 113, 113), 
     Text = "X", 
     TextColor3 = Theme.Text, 
@@ -2243,9 +2863,9 @@ local StopBtn = create("TextButton", {
     TextSize = 14,
     Visible = false
 }, {
-    create("UICorner", {CornerRadius = UDim.new(0, 6)})
+    create("UICorner", {CornerRadius = UDim.new(0, 8)})
 })
-StopBtn.Parent = SettingsBar
+StopBtn.Parent = InputFrame
 applyHover(StopBtn, Color3.fromRGB(248, 113, 113), Color3.fromRGB(220, 38, 38))
 
 local currentRequestId = 0
@@ -2796,24 +3416,6 @@ ChatInput.FocusLost:Connect(function(enterPressed)
     end 
 end)
 
--- ChatInput is now MultiLine, so plain Enter no longer fires FocusLost(enterPressed).
--- Mirror the common chat-app convention: Enter sends, Shift+Enter inserts a newline.
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if input.KeyCode ~= Enum.KeyCode.Return and input.KeyCode ~= Enum.KeyCode.KeypadEnter then return end
-    if UserInputService:GetFocusedTextBox() ~= ChatInput then return end
-
-    local shiftHeld = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
-    if shiftHeld then return end -- allow the newline
-
-    -- Strip the newline the multi-line TextBox just inserted, then send.
-    task.defer(function()
-        if ChatInput.Text:sub(-1) == "\n" then
-            ChatInput.Text = ChatInput.Text:sub(1, -2)
-        end
-        handleSend()
-    end)
-end)
-
 if config.ApiKey == "" then 
     addMessageToUI("assistant", "Welcome to the IDE! Go to **Settings** and paste your API key to begin.\n\nCommands:\n- `!read Path.To.Script`\n- `!ls Path.To.Instance`") 
 else 
@@ -2904,23 +3506,6 @@ loadSession = function(id)
     end)
 end
 
-local function startFreshSession(titleText)
-    currentSessionId = tostring(os.time())
-    SessionTitleBox.Text = titleText or ("Session - " .. os.date("%b %d %I:%M%p"))
-    sessionFiles = {{name = "Main.lua", language = "lua", content = "-- Write your Luau code here\nprint('Hello from IDE!')"}}
-    activeFileIndex = 1
-    CodeInput.Text = sessionFiles[1].content
-    refreshFileTabsUI()
-    consoleHistory = {}
-    for _, child in ipairs(ConsoleScroll:GetChildren()) do
-        if child:IsA("TextLabel") then child:Destroy() end
-    end
-    conversation = {{role = "system", content = config.SystemPrompt}}
-    for _, child in ipairs(ChatScroll:GetChildren()) do
-        if child:IsA("Frame") and not child:IsA("UIListLayout") and not child:IsA("UIPadding") then child:Destroy() end
-    end
-end
-
 updateSessionList = function()
     for _, child in ipairs(SessionsScroll:GetChildren()) do
         if child:IsA("Frame") then child:Destroy() end
@@ -2970,15 +3555,9 @@ updateSessionList = function()
             applyHover(delBtn, Color3.fromRGB(220, 38, 38), Color3.fromRGB(185, 28, 28))
             delBtn.MouseButton1Click:Connect(function()
                 pcall(delfile, file)
-                local wasActive = currentSessionId == data.id
                 updateSessionList()
-                if wasActive then
-                    -- The session backing the currently open files/chat/console no longer
-                    -- exists on disk, so start a clean session instead of leaving stale
-                    -- files and messages open.
-                    startFreshSession("Session (Deleted)")
-                    addMessageToUI("assistant", "That session was deleted, so a fresh session was started.")
-                    switchTab("Chat")
+                if currentSessionId == data.id then
+                    SessionTitleBox.Text = "Session (Deleted)"
                 end
             end)
             
@@ -2989,10 +3568,337 @@ end
 
 NewSessionBtn.MouseButton1Click:Connect(function()
     if saveSession then saveSession() end
-    startFreshSession()
+    currentSessionId = tostring(os.time())
+    SessionTitleBox.Text = "Session - " .. os.date("%b %d %I:%M%p")
+    sessionFiles = {{name = "Main.lua", language = "lua", content = "-- Write your Luau code here\nprint('Hello from IDE!')"}}
+    activeFileIndex = 1
+    CodeInput.Text = sessionFiles[1].content
+    refreshFileTabsUI()
+    consoleHistory = {}
+    for _, child in ipairs(ConsoleScroll:GetChildren()) do
+        if child:IsA("TextLabel") then child:Destroy() end
+    end
+    conversation = {{role = "system", content = config.SystemPrompt}}
+    for _, child in ipairs(ChatScroll:GetChildren()) do
+        if child:IsA("Frame") and not child:IsA("UIListLayout") and not child:IsA("UIPadding") then child:Destroy() end
+    end
     addMessageToUI("assistant", "New session started! How can I help you today?")
     switchTab("Chat")
 end)
+
+-- ============================
+-- Theme Manager
+-- ============================
+local ThemeWindow = create("Frame", {
+    Name = "ThemeWindow", Size = UDim2.new(0, 380, 0, 520),
+    Position = UDim2.new(0.5, -190, 0.5, -260), BackgroundColor3 = Theme.Background,
+    Visible = false, ZIndex = 50
+}, {
+    create("UICorner", {CornerRadius = UDim.new(0, 10)}),
+    create("UIStroke", {Color = Theme.Border, Thickness = 1})
+})
+ThemeWindow.Parent = ScreenGui
+
+local ThemeTopBar = create("Frame", {
+    Size = UDim2.new(1, 0, 0, 35), BackgroundColor3 = Theme.SurfaceDark, BorderSizePixel = 0, ZIndex = 50
+}, {
+    create("UICorner", {CornerRadius = UDim.new(0, 10)}),
+    create("Frame", {Size = UDim2.new(1, 0, 0, 10), Position = UDim2.new(0, 0, 1, -10), BackgroundColor3 = Theme.SurfaceDark, BorderSizePixel = 0, ZIndex = 50})
+})
+ThemeTopBar.Parent = ThemeWindow
+makeDraggable(ThemeWindow, ThemeTopBar)
+
+create("TextLabel", {
+    Text = "🎨 Theme Manager", Size = UDim2.new(1, -40, 1, 0), Position = UDim2.new(0, 15, 0, 0),
+    BackgroundTransparency = 1, TextColor3 = Theme.Text, Font = Enum.Font.GothamBold, TextSize = 14,
+    TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 50, Parent = ThemeTopBar
+})
+
+local ThemeCloseBtn = create("TextButton", {
+    Size = UDim2.new(0, 35, 0, 35), Position = UDim2.new(1, -35, 0, 0), BackgroundTransparency = 1,
+    Text = "X", TextColor3 = Theme.TextMuted, Font = Enum.Font.GothamBold, TextSize = 14, ZIndex = 50, Parent = ThemeTopBar
+})
+ThemeCloseBtn.MouseButton1Click:Connect(function() ThemeWindow.Visible = false end)
+ThemeToggleBtn.MouseButton1Click:Connect(function() ThemeWindow.Visible = not ThemeWindow.Visible end)
+
+local ThemeScroll = create("ScrollingFrame", {
+    Size = UDim2.new(1, 0, 1, -35), Position = UDim2.new(0, 0, 0, 35),
+    BackgroundTransparency = 1, ScrollBarThickness = 4, ScrollBarImageColor3 = Theme.Border,
+    CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y, ZIndex = 50
+}, {
+    create("UIPadding", {PaddingTop = UDim.new(0, 12), PaddingBottom = UDim.new(0, 16), PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12)}),
+    create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 10)})
+})
+ThemeScroll.Parent = ThemeWindow
+
+local function themeSectionLabel(text, order)
+    return create("TextLabel", {
+        Text = text, Size = UDim2.new(1, 0, 0, 18), BackgroundTransparency = 1,
+        TextColor3 = Theme.TextMuted, Font = Enum.Font.GothamBold, TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order, ZIndex = 50
+    })
+end
+
+local function themeDivider(order)
+    return create("Frame", {Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Theme.Border, BorderSizePixel = 0, LayoutOrder = order, ZIndex = 50})
+end
+
+themeSectionLabel("PRESETS & SAVED THEMES", 1).Parent = ThemeScroll
+
+local ThemeListContainer = create("Frame", {
+    Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+    BackgroundTransparency = 1, LayoutOrder = 2, ZIndex = 50
+}, {
+    create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6)})
+})
+ThemeListContainer.Parent = ThemeScroll
+
+local refreshThemeList -- forward declared, defined below
+
+themeDivider(3).Parent = ThemeScroll
+themeSectionLabel("CREATE / SAVE A CUSTOM THEME", 4).Parent = ThemeScroll
+
+local NewThemeNameBox = create("TextBox", {
+    Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = Theme.Surface, Text = "",
+    PlaceholderText = "My Custom Theme", TextColor3 = Theme.Text, Font = Enum.Font.Gotham,
+    TextSize = 12, ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left,
+    LayoutOrder = 5, ZIndex = 50
+}, {create("UICorner", {CornerRadius = UDim.new(0, 5)}), create("UIPadding", {PaddingLeft = UDim.new(0, 8)})})
+NewThemeNameBox.Parent = ThemeScroll
+
+local ThemeEditorBoxes = {}
+local ThemeEditorGrid = create("Frame", {
+    Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+    BackgroundTransparency = 1, LayoutOrder = 6, ZIndex = 50
+}, {
+    create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 5)})
+})
+ThemeEditorGrid.Parent = ThemeScroll
+
+for i, key in ipairs(ThemeData.Keys) do
+    local row = create("Frame", {Size = UDim2.new(1, 0, 0, 26), BackgroundTransparency = 1, LayoutOrder = i, ZIndex = 50})
+    create("TextLabel", {
+        Text = key, Size = UDim2.new(0.5, 0, 1, 0), BackgroundTransparency = 1,
+        TextColor3 = Theme.TextMuted, Font = Enum.Font.Gotham, TextSize = 11,
+        TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 50, Parent = row
+    })
+    local swatch = create("Frame", {
+        Size = UDim2.new(0, 18, 0, 18), Position = UDim2.new(0.5, 0, 0.5, -9),
+        BackgroundColor3 = Theme[key], ZIndex = 50
+    }, {create("UICorner", {CornerRadius = UDim.new(0, 4)}), create("UIStroke", {Color = Theme.Border, Thickness = 1})})
+    swatch.Parent = row
+    local hexBox = create("TextBox", {
+        Size = UDim2.new(0.5, -24, 1, -2), Position = UDim2.new(0.5, 24, 0, 1),
+        BackgroundColor3 = Theme.SurfaceDark, Text = ThemeUtil.ToHex(Theme[key]),
+        TextColor3 = Theme.Text, Font = Enum.Font.RobotoMono, TextSize = 11,
+        ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 50
+    }, {create("UICorner", {CornerRadius = UDim.new(0, 4)})})
+    hexBox.Parent = row
+    hexBox.FocusLost:Connect(function()
+        local c = ThemeUtil.FromHex(hexBox.Text)
+        if c then swatch.BackgroundColor3 = c end
+    end)
+    ThemeEditorBoxes[key] = hexBox
+    row.Parent = ThemeEditorGrid
+end
+
+local ThemeStatusLabel = create("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 16), BackgroundTransparency = 1, Text = "",
+    TextColor3 = Color3.fromRGB(74, 222, 128), Font = Enum.Font.Gotham, TextSize = 11,
+    TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true, LayoutOrder = 7, ZIndex = 50
+})
+ThemeStatusLabel.Parent = ThemeScroll
+
+local SaveThemeBtn = create("TextButton", {
+    Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = Theme.Accent, Text = "Save & Apply Theme",
+    TextColor3 = Theme.Text, Font = Enum.Font.GothamBold, TextSize = 13, LayoutOrder = 8, ZIndex = 50
+}, {create("UICorner", {CornerRadius = UDim.new(0, 6)})})
+SaveThemeBtn.Parent = ThemeScroll
+applyHover(SaveThemeBtn, Theme.Accent, Theme.AccentHover)
+
+themeDivider(9).Parent = ThemeScroll
+themeSectionLabel("EXPORT / IMPORT (JSON — share with others)", 10).Parent = ThemeScroll
+
+local ExportThemeBtn = create("TextButton", {
+    Size = UDim2.new(1, 0, 0, 28), BackgroundColor3 = Theme.Surface, Text = "📤 Export Current Theme",
+    TextColor3 = Theme.Text, Font = Enum.Font.GothamMedium, TextSize = 12, LayoutOrder = 11, ZIndex = 50
+}, {create("UICorner", {CornerRadius = UDim.new(0, 5)})})
+ExportThemeBtn.Parent = ThemeScroll
+applyHover(ExportThemeBtn, Theme.Surface, Theme.Border)
+
+local ThemeJSONScroll = create("ScrollingFrame", {
+    Size = UDim2.new(1, 0, 0, 80), BackgroundColor3 = Theme.CodeBackground,
+    CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    ScrollBarThickness = 3, LayoutOrder = 12, ZIndex = 50
+}, {create("UICorner", {CornerRadius = UDim.new(0, 5)}), create("UIStroke", {Color = Theme.Border, Thickness = 1})})
+ThemeJSONScroll.Parent = ThemeScroll
+
+local ThemeJSONBox = create("TextBox", {
+    Size = UDim2.new(1, -12, 1, 0), Position = UDim2.new(0, 6, 0, 0), BackgroundTransparency = 1,
+    Text = "", PlaceholderText = "Exported JSON appears here, or paste a theme JSON to import...",
+    TextColor3 = Theme.Text, Font = Enum.Font.RobotoMono, TextSize = 11, MultiLine = true,
+    ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
+    TextWrapped = true, AutomaticSize = Enum.AutomaticSize.Y, ZIndex = 50
+})
+ThemeJSONBox.Parent = ThemeJSONScroll
+
+local ImportThemeBtn = create("TextButton", {
+    Size = UDim2.new(1, 0, 0, 28), BackgroundColor3 = Theme.Surface, Text = "📥 Import Theme From JSON Above",
+    TextColor3 = Theme.Text, Font = Enum.Font.GothamMedium, TextSize = 12, LayoutOrder = 13, ZIndex = 50
+}, {create("UICorner", {CornerRadius = UDim.new(0, 5)})})
+ImportThemeBtn.Parent = ThemeScroll
+applyHover(ImportThemeBtn, Theme.Surface, Theme.Border)
+
+refreshThemeList = function()
+    for _, c in ipairs(ThemeListContainer:GetChildren()) do
+        if not c:IsA("UIListLayout") then c:Destroy() end
+    end
+
+    local order = 0
+    local function addRow(name, palette, isCustom)
+        order = order + 1
+        local isActive = config.CurrentTheme == name
+        local row = create("Frame", {
+            Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = Theme.Surface, LayoutOrder = order, ZIndex = 50
+        }, {
+            create("UICorner", {CornerRadius = UDim.new(0, 6)}),
+            create("UIStroke", {Color = isActive and Theme.Accent or Theme.Border, Thickness = isActive and 2 or 1}),
+            create("UIPadding", {PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8)})
+        })
+
+        local swatchRow = create("Frame", {
+            Size = UDim2.new(0, 66, 0, 16), Position = UDim2.new(0, 0, 0.5, -8),
+            BackgroundTransparency = 1, ZIndex = 50
+        }, {create("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder})})
+        swatchRow.Parent = row
+        local swatchKeys = {"Background", "Surface", "Accent", "Text", "Border"}
+        for si, sk in ipairs(swatchKeys) do
+            create("Frame", {
+                Size = UDim2.new(0, 12, 0, 16), BackgroundColor3 = palette[sk] or Color3.new(0,0,0),
+                LayoutOrder = si, ZIndex = 50
+            }, {create("UICorner", {CornerRadius = UDim.new(0, 3)})}).Parent = swatchRow
+        end
+
+        create("TextLabel", {
+            Text = name .. (isActive and "  •  active" or ""), Size = UDim2.new(1, -220, 1, 0), Position = UDim2.new(0, 74, 0, 0),
+            BackgroundTransparency = 1, TextColor3 = isActive and Theme.Accent or Theme.Text, Font = Enum.Font.GothamMedium,
+            TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 50
+        }).Parent = row
+
+        local applyBtn = create("TextButton", {
+            Size = UDim2.new(0, isCustom and 62 or 70, 0, 22), Position = UDim2.new(1, isCustom and -94 or -70, 0.5, -11),
+            BackgroundColor3 = Theme.Accent, Text = "Apply", TextColor3 = Theme.Text,
+            Font = Enum.Font.GothamMedium, TextSize = 11, ZIndex = 50
+        }, {create("UICorner", {CornerRadius = UDim.new(0, 5)})})
+        applyBtn.Parent = row
+        applyHover(applyBtn, Theme.Accent, Theme.AccentHover)
+        applyBtn.MouseButton1Click:Connect(function()
+            ThemeUtil.Apply(palette)
+            config.CurrentTheme = name
+            saveConfig()
+            refreshThemeList()
+        end)
+
+        if isCustom then
+            local delBtn = create("TextButton", {
+                Size = UDim2.new(0, 26, 0, 22), Position = UDim2.new(1, -26, 0.5, -11),
+                BackgroundColor3 = Color3.fromRGB(60, 20, 20), Text = "🗑", TextColor3 = Color3.fromRGB(248, 113, 113),
+                Font = Enum.Font.Gotham, TextSize = 12, ZIndex = 50
+            }, {create("UICorner", {CornerRadius = UDim.new(0, 5)})})
+            delBtn.Parent = row
+            delBtn.MouseButton1Click:Connect(function()
+                if delBtn:GetAttribute("Confirm") then
+                    config.CustomThemes[name] = nil
+                    if config.CurrentTheme == name then config.CurrentTheme = "Dark (Default)" end
+                    saveConfig()
+                    refreshThemeList()
+                else
+                    delBtn:SetAttribute("Confirm", true)
+                    delBtn.Text = "✓?"
+                    task.delay(3, function()
+                        if delBtn and delBtn.Parent then
+                            delBtn:SetAttribute("Confirm", false)
+                            delBtn.Text = "🗑"
+                        end
+                    end)
+                end
+            end)
+        end
+
+        row.Parent = ThemeListContainer
+    end
+
+    for _, name in ipairs(ThemeData.PresetOrder) do
+        addRow(name, ThemeData.Presets[name], false)
+    end
+    local customNames = {}
+    for name in pairs(config.CustomThemes) do table.insert(customNames, name) end
+    table.sort(customNames)
+    for _, name in ipairs(customNames) do
+        local palette = ThemeUtil.FromJSON(config.CustomThemes[name])
+        if palette then addRow(name, palette, true) end
+    end
+end
+refreshThemeList()
+
+SaveThemeBtn.MouseButton1Click:Connect(function()
+    local name = NewThemeNameBox.Text:match("^%s*(.-)%s*$")
+    if name == "" then
+        ThemeStatusLabel.TextColor3 = Color3.fromRGB(248, 113, 113)
+        ThemeStatusLabel.Text = "Enter a theme name first."
+        return
+    end
+    local palette = {}
+    for _, key in ipairs(ThemeData.Keys) do
+        local c = ThemeUtil.FromHex(ThemeEditorBoxes[key].Text)
+        if not c then
+            ThemeStatusLabel.TextColor3 = Color3.fromRGB(248, 113, 113)
+            ThemeStatusLabel.Text = "Invalid hex color for " .. key .. " (use #RRGGBB)."
+            return
+        end
+        palette[key] = c
+    end
+    config.CustomThemes[name] = ThemeUtil.ToJSON(name, palette)
+    config.CurrentTheme = name
+    saveConfig()
+    ThemeUtil.Apply(palette)
+    refreshThemeList()
+    ThemeStatusLabel.TextColor3 = Color3.fromRGB(74, 222, 128)
+    ThemeStatusLabel.Text = "Saved and applied '" .. name .. "'."
+end)
+
+ExportThemeBtn.MouseButton1Click:Connect(function()
+    local json = HttpService:JSONEncode(ThemeUtil.ToJSON(config.CurrentTheme or "Custom", Theme))
+    ThemeJSONBox.Text = json
+    pcall(setclipboard, json)
+    ThemeStatusLabel.TextColor3 = Color3.fromRGB(74, 222, 128)
+    ThemeStatusLabel.Text = "Exported (also copied to clipboard if supported)."
+end)
+
+ImportThemeBtn.MouseButton1Click:Connect(function()
+    local ok, decoded = pcall(function() return HttpService:JSONDecode(ThemeJSONBox.Text) end)
+    if not ok or type(decoded) ~= "table" then
+        ThemeStatusLabel.TextColor3 = Color3.fromRGB(248, 113, 113)
+        ThemeStatusLabel.Text = "Couldn't parse that as JSON."
+        return
+    end
+    local palette, err = ThemeUtil.FromJSON(decoded)
+    if not palette then
+        ThemeStatusLabel.TextColor3 = Color3.fromRGB(248, 113, 113)
+        ThemeStatusLabel.Text = "Invalid theme JSON: " .. tostring(err)
+        return
+    end
+    local name = (type(decoded.Name) == "string" and decoded.Name ~= "" and decoded.Name) or ("Imported " .. os.date("%H%M%S"))
+    config.CustomThemes[name] = ThemeUtil.ToJSON(name, palette)
+    config.CurrentTheme = name
+    saveConfig()
+    ThemeUtil.Apply(palette)
+    refreshThemeList()
+    ThemeStatusLabel.TextColor3 = Color3.fromRGB(74, 222, 128)
+    ThemeStatusLabel.Text = "Imported and applied '" .. name .. "'."
+end)
+
+makeResizable(ThemeWindow, Vector2.new(320, 380))
 
 -- ============================
 -- Explorer Extension
@@ -3703,9 +4609,9 @@ local function refreshPluginsUI()
             TextXAlignment = Enum.TextXAlignment.Left
         }).Parent = row
         
-        -- Rename control
+        -- Rename control (1st of 3 columns)
         local renameBtn = create("TextButton", {
-            Size = UDim2.new(0.48, 0, 0, 22),
+            Size = UDim2.new(0.32, 0, 0, 22),
             Position = UDim2.new(0, 0, 0, 50),
             BackgroundColor3 = Theme.SurfaceDark,
             Text = "Rename",
@@ -3740,11 +4646,11 @@ local function refreshPluginsUI()
             end
         end)
         
-        -- Enable/disable control
+        -- Enable/disable control (2nd of 3 columns)
         local isEnabled = pluginEnabled(plugin.name)
         local toggleBtn = create("TextButton", {
-            Size = UDim2.new(0.48, 0, 0, 22),
-            Position = UDim2.new(0.52, 0, 0, 50),
+            Size = UDim2.new(0.32, 0, 0, 22),
+            Position = UDim2.new(0.34, 0, 0, 50),
             BackgroundColor3 = isEnabled and Color3.fromRGB(20, 60, 30) or Color3.fromRGB(60, 20, 20),
             Text = isEnabled and "Disable" or "Enable",
             TextColor3 = isEnabled and Color3.fromRGB(74, 222, 128) or Color3.fromRGB(248, 113, 113),
@@ -3758,6 +4664,37 @@ local function refreshPluginsUI()
             config.PluginMeta[plugin.name].Enabled = not isEnabled
             saveConfig()
             loadPlugins()
+        end)
+
+        -- Delete control (3rd of 3 columns) — click once to arm, click again within 3s to confirm
+        local deleteBtn = create("TextButton", {
+            Size = UDim2.new(0.32, 0, 0, 22),
+            Position = UDim2.new(0.68, 0, 0, 50),
+            BackgroundColor3 = Color3.fromRGB(60, 20, 20),
+            Text = "Delete",
+            TextColor3 = Color3.fromRGB(248, 113, 113),
+            Font = Enum.Font.GothamMedium,
+            TextSize = 10
+        }, {create("UICorner", {CornerRadius = UDim.new(0, 4)})})
+        deleteBtn.Parent = row
+
+        deleteBtn.MouseButton1Click:Connect(function()
+            if deleteBtn:GetAttribute("Confirm") then
+                local path = PLUGINS_DIR .. "/" .. plugin.name .. ".lua"
+                pcall(delfile, path)
+                config.PluginMeta[plugin.name] = nil
+                saveConfig()
+                loadPlugins()
+            else
+                deleteBtn:SetAttribute("Confirm", true)
+                deleteBtn.Text = "Confirm?"
+                task.delay(3, function()
+                    if deleteBtn and deleteBtn.Parent then
+                        deleteBtn:SetAttribute("Confirm", false)
+                        deleteBtn.Text = "Delete"
+                    end
+                end)
+            end
         end)
         
         row.Parent = PluginsList
@@ -3886,6 +4823,20 @@ ReloadPluginsBtn.MouseButton1Click:Connect(function()
         ReloadPluginsBtn.Text = "Reload"
     end)
 end)
+
+-- Apply whichever theme the user had active last session (falls back to Dark (Default) silently
+-- if it's missing/corrupt, since Theme already holds those default values).
+pcall(function()
+    local savedName = config.CurrentTheme
+    if not savedName or savedName == "Dark (Default)" then return end
+    if ThemeData.Presets[savedName] then
+        ThemeUtil.Apply(ThemeData.Presets[savedName])
+    elseif config.CustomThemes[savedName] then
+        local palette = ThemeUtil.FromJSON(config.CustomThemes[savedName])
+        if palette then ThemeUtil.Apply(palette) end
+    end
+end)
+if refreshThemeList then refreshThemeList() end
 
 -- Load plugins on startup
 loadPlugins()
