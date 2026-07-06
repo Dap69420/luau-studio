@@ -1126,7 +1126,7 @@ end)
 AddPluginWindow.Parent = ScreenGui
 PluginsWindow.Parent = ScreenGui
 makeDraggable(PluginsWindow, PluginsTopBar)
-makeResizable(PluginsWindow, Vector2.new(280, 300))
+makeResizable(PluginsWindow, Vector2.new(280, 300));
 
 -- === Plugin API Docs viewer ===
 -- Wrapped in an immediately-invoked function so all its internal UI locals live in their own
