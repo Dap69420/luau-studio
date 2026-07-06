@@ -1,10 +1,3 @@
-print("██╗      ██╗   ██╗  █████╗  ██╗   ██╗        ███████╗ ████████╗ ██╗   ██╗ ██████╗  ██╗  ██████╗")
-print("██║      ██║   ██║ ██╔══██╗ ██║   ██║        ██╔════╝ ╚══██╔══╝ ██║   ██║ ██╔══██╗ ██║ ██╔═══██╗")
-print("██║      ██║   ██║ ███████║ ██║   ██║  ████  ███████╗    ██║    ██║   ██║ ██║  ██║ ██║ ██║   ██║")
-print("██║      ██║   ██║ ██╔══██║ ██║   ██║        ╚════██║    ██║    ██║   ██║ ██║  ██║ ██║ ██║   ██║")
-print("███████╗ ╚██████╔╝ ██║  ██║ ╚██████╔╝        ███████║    ██║    ╚██████╔╝ ██████╔╝ ██║ ╚██████╔╝")
-print("╚══════╝  ╚═════╝  ╚═╝  ╚═╝  ╚═════╝         ╚══════╝    ╚═╝     ╚═════╝  ╚═════╝  ╚═╝  ╚═════╝")
-
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
@@ -41,6 +34,11 @@ local PLUGINS_DIR = CONFIG_DIR .. "/plugins"
 local pluginCommands = {} 
 local pluginCommandDescriptions = {} 
 local pluginUnloadCallbacks = {} 
+
+-- Forward-declared early (rather than down near clampFrameToScreen) so that ThemeUtil.Apply,
+-- which is defined further up the file than the clamp helpers, correctly captures this as an
+-- upvalue instead of silently resolving "ScreenGui" to an unset global.
+local ScreenGui
 
 local currentSessionId = tostring(os.time())
 local saveSession
@@ -339,7 +337,6 @@ end
 
 -- Frames registered here get automatically re-clamped inside the screen
 -- whenever the viewport size changes (e.g. mobile rotation, window resize).
-local ScreenGui -- forward declaration; assigned below, referenced by clamp helpers above its assignment
 local clampableFrames = {}
 
 local function clampFrameToScreen(frame, margin)
