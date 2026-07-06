@@ -3941,7 +3941,7 @@ NewSessionBtn.MouseButton1Click:Connect(function()
     startFreshSession()
     addMessageToUI("assistant", "New session started! How can I help you today?")
     switchTab("Chat")
-end)
+end);
 
 -- ============================
 -- Theme Manager
